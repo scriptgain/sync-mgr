@@ -48,16 +48,9 @@
     @else
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             @foreach ($devices as $device)
-                <label class="cursor-pointer select-none">
-                    <input type="checkbox" name="devices[]" value="{{ $device->id }}"
-                        class="peer sr-only" @checked(in_array($device->id, $selected, true))>
-                    <span class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium ring-1 ring-slate-200 text-slate-600 bg-white transition
-                                 peer-checked:bg-brand-50 peer-checked:text-brand-700 peer-checked:ring-brand-300
-                                 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/60">
-                        <x-icon name="server" class="w-4 h-4 shrink-0 text-slate-400" />
-                        <span class="min-w-0 truncate">{{ $device->name }}</span>
-                    </span>
-                </label>
+                <x-check-switch name="devices[]" :value="$device->id" :checked="in_array($device->id, $selected, true)" icon="server">
+                    <span class="min-w-0 truncate">{{ $device->name }}</span>
+                </x-check-switch>
             @endforeach
         </div>
         <p class="mt-2 text-sm text-slate-500">Select the devices this folder should sync with.</p>
