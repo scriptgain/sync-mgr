@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Folder;
 use App\Models\SyncEvent;
 use Illuminate\Http\Request;
@@ -36,5 +37,30 @@ class SyncEventController extends Controller
         $syncEvent->load(['folder:id,name', 'device:id,name']);
 
         return view('events.show', ['event' => $syncEvent]);
+    }
+
+    /**
+     * Bulk-delete selected sync events. Only operates on the ids explicitly
+     * submitted, and only on events the current user is allowed to see.
+     */
+    public function bulkDestroy(Request $request)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $user = auth()->user();
+        $ids = SyncEvent::visibleTo($user)->whereIn('id', $data['ids'])->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return back()->with('warning', 'No matching events were selected.');
+        }
+
+        $count = SyncEvent::visibleTo($user)->whereIn('id', $ids->all())->delete();
+
+        AuditLog::record('sync_event', "Bulk deleted {$count} sync event".($count === 1 ? '' : 's').'.');
+
+        return back()->with('status', $count.' event'.($count === 1 ? '' : 's').' deleted.');
     }
 }

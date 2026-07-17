@@ -60,6 +60,7 @@ Route::middleware(['auth', 'security.policy'])->group(function () {
 
     // Event feed (read-only).
     Route::get('events', [SyncEventController::class, 'index'])->name('events.index');
+    Route::delete('events/bulk', [SyncEventController::class, 'bulkDestroy'])->name('events.bulk-destroy');
     Route::get('events/{syncEvent}', [SyncEventController::class, 'show'])->name('events.show');
 
     // Settings.
