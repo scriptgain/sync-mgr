@@ -70,7 +70,7 @@
                                     class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
                             </button>
                         </th>
-                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Main</th><th>Peer</th><th>Enabled</th><th>Last Run</th><th class="text-right">Actions</th>
+                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Main</th><th>Peers</th><th>Schedule</th><th>Last Run</th><th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -90,8 +90,24 @@
                             <td class="font-medium text-slate-900"><a href="{{ route('folders.show', $f) }}" class="hover:text-brand-700">{{ $f->name }}</a></td>
                             @if (auth()->user()->isAdmin())<td class="text-slate-500">{{ $f->owner?->name ?? 'Unassigned' }}</td>@endif
                             <td class="text-slate-600">{{ $f->mainDevice?->name ?? '—' }}</td>
-                            <td class="text-slate-600">{{ $f->peerDevice?->name ?? '—' }}</td>
-                            <td>@if ($f->enabled)<x-badge color="success" dot>On</x-badge>@else<x-badge color="neutral" dot>Off</x-badge>@endif</td>
+                            <td class="text-slate-600">
+                                @if ($f->peers_count === 0)
+                                    <span class="text-slate-400">—</span>
+                                @elseif ($f->peers_count === 1)
+                                    {{ $f->peers->first()?->name ?? '—' }}
+                                @else
+                                    <span class="inline-flex items-center gap-1.5"><x-icon name="users" class="w-3.5 h-3.5 text-slate-400" />{{ $f->peers_count }} peers</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($f->schedule_mode === 'manual')
+                                    <x-badge color="neutral">Manual</x-badge>
+                                @elseif ($f->schedule_mode === 'onchange')
+                                    <x-badge :color="$f->enabled ? 'info' : 'neutral'" dot>On Change</x-badge>
+                                @else
+                                    <x-badge :color="$f->enabled ? 'success' : 'neutral'" dot>{{ $f->enabled ? 'Every ' . $f->interval_minutes . 'm' : 'Off' }}</x-badge>
+                                @endif
+                            </td>
                             <td>
                                 @if ($f->last_status)
                                     <x-badge :color="$lastStatusColors[$f->last_status] ?? 'neutral'" dot>{{ ucfirst($f->last_status) }}</x-badge>

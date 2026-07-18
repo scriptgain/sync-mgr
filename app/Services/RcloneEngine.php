@@ -171,36 +171,131 @@ class RcloneEngine
      */
     public function runSync(Folder $folder): SyncEvent
     {
-        $folder->loadMissing('mainDevice', 'peerDevice');
-        $resolved = $folder->resolveOperation();
-        $op = $resolved['op'];
-        $from = $resolved['from'];
-        $to = $resolved['to'];
+        $folder->loadMissing('mainDevice', 'peers');
+        $main = $folder->mainDevice;
+        $peers = $folder->peers;
 
         // ---- Guards (each records a failed event and returns) ---------------
-        if (! $folder->mainDevice || ! $folder->peerDevice) {
-            return $this->record($folder, null, 'failed', 'error', $op,
-                'Pairing is missing its Main or Peer endpoint.', 0, 0, 1, 0, '');
+        if (! $main) {
+            return $this->record($folder, null, 'failed', 'error', $folder->main_mode,
+                'Pairing is missing its Main endpoint.', 0, 0, 1, 0, '');
+        }
+        if ($peers->isEmpty()) {
+            return $this->record($folder, null, 'failed', 'error', $folder->main_mode,
+                'Pairing has no peers. Add at least one peer endpoint or a device group.', 0, 0, 1, 0, '');
         }
 
-        if ($op === 'invalid') {
-            return $this->record($folder, null, 'failed', 'error', $op,
-                'Invalid role combination. Pair a Send Only endpoint with a Receive Only endpoint for one-way sync, or use Send & Receive on both for two-way.', 0, 0, 1, 0, '');
+        // Main = Send Only -> fan a one-way push out to EVERY peer.
+        if ($folder->main_mode === 'send_only') {
+            return $this->runFanOut($folder, $main, $peers);
         }
 
-        if ($op === 'bisync') {
-            // Phase-2 seam. Two-way bisync is validated and modelled but not yet
-            // executed; guard it so one-way pairings keep working.
-            return $this->record($folder, $to, 'failed', 'error', $op,
-                'Two-Way (Send & Receive) sync is coming soon. Use Send Only + Receive Only for one-way sync today.', 0, 0, 1, 0, '');
+        // Main = Receive Only -> pull from a single peer. Multi-peer pull is
+        // ambiguous (many sources into one), so require exactly one.
+        if ($folder->main_mode === 'receive_only') {
+            if ($peers->count() !== 1) {
+                return $this->record($folder, null, 'failed', 'error', 'pull',
+                    'Pull (Main Receive Only) works with exactly one peer. Use Send Only on the Main to fan out to many peers.', 0, 0, 1, 0, '');
+            }
+            $peer = $peers->first();
+            if (! $main->isLive() || ! $peer->isLive()) {
+                return $this->record($folder, $peer, 'failed', 'error', 'pull',
+                    'One or both endpoints use the Agent transport, which is not available yet. Use FTP, SFTP, S3 or Local endpoints for live sync.', 0, 0, 1, 0, '');
+            }
+
+            return $this->runOneWay($folder, $peer, $main, 'pull');
         }
 
-        if (! $from->isLive() || ! $to->isLive()) {
-            return $this->record($folder, $to, 'failed', 'error', $op,
-                'One or both endpoints use the Agent transport, which is not available yet. Use FTP, SFTP, S3 or Local endpoints for live sync.', 0, 0, 1, 0, '');
+        // Main = Send & Receive -> two-way bisync with a single peer (phase-2 seam).
+        return $this->record($folder, $peers->first(), 'failed', 'error', 'bisync',
+            'Two-Way (Send & Receive) sync is coming soon. Use Send Only + Receive Only for one-way sync today.', 0, 0, 1, 0, '');
+    }
+
+    /**
+     * Fan a one-way push out from the Main (Send Only) endpoint to every peer
+     * (each treated as Receive Only). Each leg runs through the exact same
+     * per-pair rclone path as a single-device push and records its OWN SyncEvent
+     * so per-destination success/failure is visible. Returns the last peer's
+     * event; the pairing headline is a rolled-up status. A single-peer pairing
+     * (the proven FTP->FTP path) is just the one-leg case of this loop.
+     */
+    protected function runFanOut(Folder $folder, Device $main, $peers): SyncEvent
+    {
+        if (! $main->isLive()) {
+            return $this->record($folder, null, 'failed', 'error', 'push',
+                'The Main endpoint uses the Agent transport, which is not available yet. Use FTP, SFTP, S3 or Local endpoints for live sync.', 0, 0, 1, 0, '');
         }
 
-        // ---- Execute rclone sync (one-way mirror) ---------------------------
+        // Only label per-leg when there is genuinely more than one destination,
+        // so single-peer messages stay clean.
+        $multi = $peers->count() > 1;
+
+        $events = [];
+        foreach ($peers as $peer) {
+            if ($peer->id === $main->id) {
+                continue; // never sync an endpoint onto itself
+            }
+            $label = $multi ? $peer->name : null;
+            if (! $peer->isLive()) {
+                $events[] = $this->record($folder, $peer, 'failed', 'error', 'push',
+                    ($multi ? "[{$peer->name}] " : '')."Skipped: Agent transport is not available yet.", 0, 0, 1, 0, '');
+                continue;
+            }
+            $events[] = $this->runOneWay($folder, $main, $peer, 'push', $label);
+        }
+
+        if ($events === []) {
+            return $this->record($folder, null, 'failed', 'error', 'push',
+                'No eligible peer endpoints to sync.', 0, 0, 1, 0, '');
+        }
+
+        // Roll the per-member outcomes up into the pairing's headline status.
+        $statuses = array_map(fn ($e) => $e->status, $events);
+        $ok = count(array_filter($statuses, fn ($s) => $s === 'success'));
+        $summary = in_array('failed', $statuses, true)
+            ? ($ok > 0 || in_array('partial', $statuses, true) ? 'partial' : 'failed')
+            : (in_array('partial', $statuses, true) ? 'partial' : 'success');
+
+        $folder->forceFill([
+            'last_run_at' => Carbon::now(),
+            'last_status' => $summary,
+            'status' => $summary === 'failed' ? 'error' : 'idle',
+            'next_run_at' => $this->nextRunAt($folder),
+        ])->save();
+
+        if (count($events) > 1) {
+            AuditLog::record('sync', "Fan-out \"{$folder->name}\" {$summary}: {$ok}/".count($events).' peer(s) synced', $folder);
+        }
+
+        return end($events);
+    }
+
+    /**
+     * When should this pairing next run automatically? Honors schedule_mode:
+     * manual never; scheduled/onchange after interval_minutes; onchange with a
+     * zero gap is eligible again on the very next dispatcher tick (null = due).
+     */
+    protected function nextRunAt(Folder $folder): ?Carbon
+    {
+        if (! $folder->enabled || $folder->schedule_mode === 'manual') {
+            return null;
+        }
+        if ($folder->interval_minutes > 0) {
+            return Carbon::now()->addMinutes($folder->interval_minutes);
+        }
+
+        return null;
+    }
+
+    /**
+     * Execute one one-way rclone mirror (from -> to) and record its SyncEvent.
+     * Shared by single-device pairings and by each leg of a group fan-out. An
+     * optional $peerLabel prefixes the recorded message (used for fan-out legs).
+     */
+    protected function runOneWay(Folder $folder, Device $from, Device $to, string $op, ?string $peerLabel = null): SyncEvent
+    {
+        $prefix = $peerLabel ? "[{$peerLabel}] " : '';
+
         try {
             $env = array_merge($this->remoteEnv('src', $from), $this->remoteEnv('dst', $to));
             $srcPath = $this->remotePath('src', $from, $folder->subpath);
@@ -237,15 +332,15 @@ class RcloneEngine
             $errors = (int) ($stats['errors'] ?? 0);
 
             $message = $status === 'success'
-                ? "Synced {$files} file(s), " . \App\Support\Bytes::human($bytes) . '.'
+                ? $prefix . "Synced {$files} file(s), " . \App\Support\Bytes::human($bytes) . '.'
                 : ($status === 'partial'
-                    ? "Completed with {$errors} error(s); {$files} file(s) transferred."
-                    : 'Sync failed. ' . Str::limit(trim(Str::afterLast(trim($log), "\n")), 200));
+                    ? $prefix . "Completed with {$errors} error(s); {$files} file(s) transferred."
+                    : $prefix . 'Sync failed. ' . Str::limit(trim(Str::afterLast(trim($log), "\n")), 200));
 
             return $this->record($folder, $to, $status, $type, $op, $message, $files, $bytes, $errors, $durationMs, $log);
         } catch (\Throwable $e) {
             return $this->record($folder, $to, 'failed', 'error', $op,
-                'Sync error: ' . Str::limit($e->getMessage(), 300), 0, 0, 1, 0, (string) $e);
+                $prefix . 'Sync error: ' . Str::limit($e->getMessage(), 300), 0, 0, 1, 0, (string) $e);
         }
     }
 
@@ -307,9 +402,7 @@ class RcloneEngine
             'last_run_at' => Carbon::now(),
             'last_status' => $status,
             'status' => $status === 'success' ? 'idle' : ($status === 'partial' ? 'idle' : 'error'),
-            'next_run_at' => ($folder->enabled && $folder->interval_minutes > 0)
-                ? Carbon::now()->addMinutes($folder->interval_minutes)
-                : null,
+            'next_run_at' => $this->nextRunAt($folder),
         ])->save();
 
         AuditLog::record('sync', "Sync \"{$folder->name}\" {$status}: {$message}", $folder);

@@ -46,11 +46,18 @@ class Folder extends Model
         'error' => 'Error',
     ];
 
+    /** How a pairing runs automatically. */
+    public const SCHEDULE_MODES = [
+        'manual' => 'Manual',
+        'scheduled' => 'Scheduled',
+        'onchange' => 'On Change (Continuous)',
+    ];
+
     protected $fillable = [
         'user_id', 'name', 'folder_id', 'path', 'type', 'status',
         'rescan_interval', 'versioning', 'file_count', 'size_bytes', 'notes',
         'main_device_id', 'peer_device_id', 'main_mode', 'peer_mode',
-        'subpath', 'enabled', 'interval_minutes', 'last_run_at', 'next_run_at', 'last_status',
+        'subpath', 'enabled', 'schedule_mode', 'interval_minutes', 'last_run_at', 'next_run_at', 'last_status',
     ];
 
     protected function casts(): array
@@ -80,9 +87,38 @@ class Folder extends Model
         return $this->belongsTo(Device::class, 'main_device_id');
     }
 
+    /** Legacy single peer column (kept for back-compat; the peer SET is authoritative). */
     public function peerDevice(): BelongsTo
     {
         return $this->belongsTo(Device::class, 'peer_device_id');
+    }
+
+    /**
+     * The pairing's peer SET. A pairing has one Main endpoint plus N peers
+     * (ad-hoc devices and/or the expanded members of one or more groups). Each
+     * peer carries its own role in the pivot's `mode`.
+     */
+    public function peers(): BelongsToMany
+    {
+        return $this->belongsToMany(Device::class, 'folder_peer')
+            ->withPivot('mode')
+            ->withTimestamps();
+    }
+
+    /** Number of peers, preferring an already-loaded relation/count. */
+    public function peerCount(): int
+    {
+        if (isset($this->attributes['peers_count'])) {
+            return (int) $this->attributes['peers_count'];
+        }
+
+        return $this->relationLoaded('peers') ? $this->peers->count() : $this->peers()->count();
+    }
+
+    /** True when the Main fans out to more than one peer. */
+    public function isFanOut(): bool
+    {
+        return $this->main_mode === 'send_only' && $this->peerCount() > 1;
     }
 
     public function syncEvents(): HasMany
@@ -110,6 +146,21 @@ class Folder extends Model
         return self::MODES[$this->peer_mode] ?? ucfirst((string) $this->peer_mode);
     }
 
+    public function scheduleModeLabel(): string
+    {
+        return self::SCHEDULE_MODES[$this->schedule_mode] ?? 'Scheduled';
+    }
+
+    /** Human sentence describing how/when this pairing runs automatically. */
+    public function scheduleLabel(): string
+    {
+        return match ($this->schedule_mode) {
+            'manual' => 'Manual (Sync Now only)',
+            'onchange' => 'On Change (checks every '.max(1, (int) $this->interval_minutes).' min)',
+            default => $this->interval_minutes > 0 ? 'Every '.$this->interval_minutes.' min' : 'Manual only',
+        };
+    }
+
     /**
      * Resolve the pairing's roles to a concrete data-flow operation.
      * Returns ['op' => 'push'|'pull'|'bisync'|'invalid', 'from' => ?Device, 'to' => ?Device].
@@ -135,18 +186,25 @@ class Folder extends Model
     /** Human sentence describing the resolved data flow, for the UI. */
     public function flowLabel(): string
     {
-        return match ($this->resolveOperation()['op']) {
-            'push' => 'Main → Peer (one-way mirror out)',
-            'pull' => 'Peer → Main (one-way mirror in)',
-            'bisync' => 'Main ⇄ Peer (two-way)',
+        $n = $this->peerCount();
+
+        return match ($this->main_mode) {
+            'send_only' => $n > 1
+                ? 'Main → '.$n.' Peers (one-way fan-out)'
+                : 'Main → Peer (one-way mirror out)',
+            'receive_only' => 'Peer → Main (one-way mirror in)',
+            'send_receive' => 'Main ⇄ Peer (two-way)',
             default => 'Invalid role combination',
         };
     }
 
-    /** Is this pairing eligible for a scheduled run right now? */
+    /** Is this pairing eligible for an automatic run right now? */
     public function isDue(): bool
     {
-        if (! $this->enabled || $this->interval_minutes <= 0) {
+        if (! $this->enabled || $this->schedule_mode === 'manual') {
+            return false;
+        }
+        if ($this->schedule_mode === 'scheduled' && $this->interval_minutes <= 0) {
             return false;
         }
 

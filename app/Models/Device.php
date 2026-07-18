@@ -73,6 +73,13 @@ class Device extends Model
             ->withTimestamps();
     }
 
+    /** Device Groups this endpoint is a member of. */
+    public function groups(): BelongsToMany
+    {
+        return $this->belongsToMany(DeviceGroup::class, 'device_group_device')
+            ->withTimestamps();
+    }
+
     public function syncEvents(): HasMany
     {
         return $this->hasMany(SyncEvent::class);
@@ -84,10 +91,18 @@ class Device extends Model
         return $this->hasMany(Folder::class, 'main_device_id');
     }
 
-    /** Pairings where this endpoint is the Peer. */
+    /** Pairings where this endpoint is the (legacy single) Peer. */
     public function peerPairings(): HasMany
     {
         return $this->hasMany(Folder::class, 'peer_device_id');
+    }
+
+    /** Pairings that include this endpoint in their peer set (the current model). */
+    public function peerFolders(): BelongsToMany
+    {
+        return $this->belongsToMany(Folder::class, 'folder_peer')
+            ->withPivot('mode')
+            ->withTimestamps();
     }
 
     public function statusLabel(): string

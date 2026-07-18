@@ -3,7 +3,7 @@
         :back="['href' => route('devices.show', $device), 'label' => $device->name]" />
 
     <x-card>
-        <form method="POST" action="{{ route('devices.update', $device) }}" class="space-y-5">
+        <form method="POST" action="{{ route('devices.update', $device) }}" class="space-y-5" autocomplete="off">
             @csrf
             @method('PUT')
             @include('devices._fields', ['device' => $device])

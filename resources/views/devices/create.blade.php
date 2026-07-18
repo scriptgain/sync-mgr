@@ -3,7 +3,7 @@
         :back="['href' => route('devices.index'), 'label' => 'Devices']" />
 
     <x-card>
-        <form method="POST" action="{{ route('devices.store') }}" class="space-y-5">
+        <form method="POST" action="{{ route('devices.store') }}" class="space-y-5" autocomplete="off">
             @csrf
             @include('devices._fields', ['device' => null])
             <div class="flex items-center justify-end gap-2 pt-1">

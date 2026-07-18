@@ -85,6 +85,8 @@
                 'active' => request()->routeIs('folders.*')],
             ['type' => 'link', 'label' => 'Devices', 'href' => route('devices.index'), 'icon' => 'server',
                 'active' => request()->routeIs('devices.*')],
+            ['type' => 'link', 'label' => 'Groups', 'href' => route('device-groups.index'), 'icon' => 'users',
+                'active' => request()->routeIs('device-groups.*')],
             ['type' => 'link', 'label' => 'Events', 'href' => route('events.index'), 'icon' => 'clock',
                 'active' => request()->routeIs('events.*')],
         ];
@@ -189,6 +191,7 @@
         $sectionMap = [
             'folders' => ['Folders', 'folders.index'],
             'devices' => ['Devices', 'devices.index'],
+            'device-groups' => ['Groups', 'device-groups.index'],
             'events' => ['Events', 'events.index'],
             'settings' => ['Settings', 'settings.index'],
         ];

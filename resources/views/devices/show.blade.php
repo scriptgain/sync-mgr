@@ -62,23 +62,39 @@
             </x-card>
 
             <x-card title="Pairings Using This Endpoint">
-                @php $pairings = $device->mainPairings->merge($device->peerPairings) ?? collect(); @endphp
-                @if ($device->folders->isEmpty() && $pairings->isEmpty())
-                    <x-empty-state icon="folder" title="No Pairings" description="Create a sync pairing that uses this endpoint as its Main or Peer." />
+                @php
+                    $asMain = $device->mainPairings->map(fn ($f) => tap($f)->setAttribute('_role', 'Main'));
+                    $asPeer = $device->peerFolders->map(fn ($f) => tap($f)->setAttribute('_role', 'Peer'));
+                    $pairings = $asMain->concat($asPeer)->unique('id');
+                @endphp
+                @if ($pairings->isEmpty())
+                    <x-empty-state icon="folder" title="No Pairings" description="Create a sync pairing that uses this endpoint as its Main or a Peer." />
                 @else
                     <x-table>
-                        <thead><tr><th>Folder</th><th>Type</th><th>Status</th><th>Size</th></tr></thead>
+                        <thead><tr><th>Pairing</th><th>Role</th><th>Status</th><th>Size</th></tr></thead>
                         <tbody>
-                            @foreach ($device->folders as $f)
+                            @foreach ($pairings as $f)
                                 <tr>
                                     <td class="font-medium text-slate-900"><a href="{{ route('folders.show', $f) }}" class="hover:text-brand-700">{{ $f->name }}</a></td>
-                                    <td class="text-slate-500">{{ $f->typeLabel() }}</td>
+                                    <td><x-badge :color="$f->_role === 'Main' ? 'info' : 'neutral'">{{ $f->_role }}</x-badge></td>
                                     <td><x-badge :color="$folderStatusColors[$f->status] ?? 'neutral'" dot>{{ $f->statusLabel() }}</x-badge></td>
                                     <td class="tabular text-slate-500">{{ \App\Support\Bytes::human($f->size_bytes) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
                     </x-table>
+                @endif
+            </x-card>
+
+            <x-card title="Device Groups">
+                @if ($device->groups->isEmpty())
+                    <x-empty-state icon="users" title="No Groups" description="This endpoint is not in any device group yet." />
+                @else
+                    <div class="flex flex-wrap gap-2">
+                        @foreach ($device->groups as $g)
+                            <a href="{{ route('device-groups.show', $g) }}"><x-badge color="info">{{ $g->name }}</x-badge></a>
+                        @endforeach
+                    </div>
                 @endif
             </x-card>
 

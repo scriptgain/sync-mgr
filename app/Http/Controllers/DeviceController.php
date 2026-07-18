@@ -17,7 +17,7 @@ class DeviceController extends Controller
     public function index()
     {
         $user = auth()->user();
-        $devices = Device::visibleTo($user)->with('owner:id,name')->withCount('folders')->latest()->paginate(25)->withQueryString();
+        $devices = Device::visibleTo($user)->with(['owner:id,name', 'groups:id,name'])->withCount('folders')->latest()->paginate(25)->withQueryString();
 
         $stats = [
             'total' => Device::visibleTo($user)->count(),
@@ -25,7 +25,10 @@ class DeviceController extends Controller
             'local' => Device::visibleTo($user)->where('is_local', true)->count(),
         ];
 
-        return view('devices.index', compact('devices', 'stats'));
+        // Groups present on this page, for the client-side group filter chips.
+        $groupFilters = $devices->pluck('groups')->flatten()->unique('id')->sortBy('name')->values();
+
+        return view('devices.index', compact('devices', 'stats', 'groupFilters'));
     }
 
     public function create()
@@ -60,7 +63,12 @@ class DeviceController extends Controller
     public function show(Device $device)
     {
         $this->guard($device);
-        $device->load(['owner:id,name', 'folders']);
+        $device->load([
+            'owner:id,name',
+            'groups' => fn ($q) => $q->orderBy('name'),
+            'mainPairings:id,name,status,size_bytes,main_device_id',
+            'peerFolders',
+        ]);
 
         return view('devices.show', compact('device'));
     }

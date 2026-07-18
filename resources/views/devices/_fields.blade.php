@@ -56,7 +56,9 @@
             <x-slot:label>
                 <span x-show="! is('s3')">Username</span><span x-show="is('s3')">Access Key</span>
             </x-slot:label>
-            <x-input name="username" :value="old('username', $d->username ?? '')" autocomplete="off" placeholder="user" />
+            <x-input name="username" :value="old('username', $d->username ?? '')" autocomplete="off"
+                data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
+                readonly onfocus="this.removeAttribute('readonly')" placeholder="user" />
         </x-field>
         <x-field :error="$errors->first('secret')" :hint="$d ? 'Leave blank to keep the stored secret.' : null">
             <x-slot:label>
@@ -64,6 +66,8 @@
             </x-slot:label>
             <div class="relative">
                 <input name="secret" :type="showSecret ? 'text' : 'password'" autocomplete="new-password" value=""
+                    data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
+                    readonly onfocus="this.removeAttribute('readonly')"
                     placeholder="{{ $d ? '••••••••' : '' }}"
                     class="block w-full rounded-lg border-0 bg-white pl-3 pr-10 py-2 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-brand-500" />
                 <button type="button" @click="showSecret = ! showSecret" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabindex="-1" aria-label="Reveal secret">
@@ -110,7 +114,8 @@
     {{-- SFTP optional private key. --}}
     <div x-show="is('sftp')" x-cloak>
         <x-field label="Private Key (Optional)" :hint="$d ? 'Leave blank to keep the stored key. Overrides password when present.' : 'PEM private key. Overrides the password when present.'" :error="$errors->first('private_key')">
-            <textarea name="private_key" rows="4"
+            <textarea name="private_key" rows="4" autocomplete="new-password"
+                data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                 class="block w-full rounded-lg border-0 bg-white px-3 py-2 font-mono text-xs text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-brand-500"
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
         </x-field>

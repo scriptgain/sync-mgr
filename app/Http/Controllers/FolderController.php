@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ManagesOwners;
 use App\Jobs\RunSyncJob;
 use App\Models\AuditLog;
 use App\Models\Device;
+use App\Models\DeviceGroup;
 use App\Models\Folder;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -18,7 +19,7 @@ class FolderController extends Controller
     public function index()
     {
         $user = auth()->user();
-        $folders = Folder::visibleTo($user)->with(['owner:id,name', 'mainDevice:id,name', 'peerDevice:id,name'])->latest()->paginate(25)->withQueryString();
+        $folders = Folder::visibleTo($user)->with(['owner:id,name', 'mainDevice:id,name', 'peers:id,name'])->withCount('peers')->latest()->paginate(25)->withQueryString();
 
         $stats = [
             'total' => Folder::visibleTo($user)->count(),
@@ -34,6 +35,7 @@ class FolderController extends Controller
         return view('folders.create', [
             'owners' => $this->assignableOwners(),
             'endpoints' => Device::visibleTo(auth()->user())->orderBy('name')->get(),
+            'groups' => DeviceGroup::visibleTo(auth()->user())->with('devices:id')->withCount('devices')->orderBy('name')->get(),
         ]);
     }
 
@@ -41,7 +43,9 @@ class FolderController extends Controller
     {
         $data = $this->validated($request);
         $data['user_id'] = $this->resolveOwner($request);
-        unset($data['owner_id']);
+        $peerIds = $data['_peer_ids'];
+        $peerMode = $data['peer_mode'];
+        unset($data['owner_id'], $data['_peer_ids']);
 
         $this->applyLegacyDefaults($data);
 
@@ -50,6 +54,7 @@ class FolderController extends Controller
         }
 
         $folder = Folder::create($data);
+        $this->syncPeers($folder, $peerIds, $peerMode);
         $this->assignFromRequest($folder, $request);
         AuditLog::record('created', "Pairing \"{$folder->name}\" created", $folder);
 
@@ -59,7 +64,7 @@ class FolderController extends Controller
     public function show(Folder $folder)
     {
         $this->guard($folder);
-        $folder->load(['owner:id,name', 'mainDevice', 'peerDevice']);
+        $folder->load(['owner:id,name', 'mainDevice', 'peers' => fn ($q) => $q->orderBy('name')]);
         $events = $folder->syncEvents()->with('device:id,name')->latest('occurred_at')->latest('id')->limit(20)->get();
 
         return view('folders.show', compact('folder', 'events'));
@@ -68,11 +73,13 @@ class FolderController extends Controller
     public function edit(Folder $folder)
     {
         $this->guard($folder);
+        $folder->load('peers:id');
 
         return view('folders.edit', [
             'folder' => $folder,
             'owners' => $this->assignableOwners(),
             'endpoints' => Device::visibleTo(auth()->user())->orderBy('name')->get(),
+            'groups' => DeviceGroup::visibleTo(auth()->user())->with('devices:id')->withCount('devices')->orderBy('name')->get(),
         ]);
     }
 
@@ -83,7 +90,9 @@ class FolderController extends Controller
         if (auth()->user()->isAdmin()) {
             $data['user_id'] = $data['owner_id'] ?? null;
         }
-        unset($data['owner_id']);
+        $peerIds = $data['_peer_ids'];
+        $peerMode = $data['peer_mode'];
+        unset($data['owner_id'], $data['_peer_ids']);
 
         $this->applyLegacyDefaults($data);
 
@@ -92,6 +101,7 @@ class FolderController extends Controller
         }
 
         $folder->update($data);
+        $this->syncPeers($folder, $peerIds, $peerMode);
         $this->assignFromRequest($folder, $request);
         AuditLog::record('updated', "Pairing \"{$folder->name}\" updated", $folder);
 
@@ -113,8 +123,8 @@ class FolderController extends Controller
     {
         $this->guard($folder);
 
-        if (! $folder->main_device_id || ! $folder->peer_device_id) {
-            return back()->with('warning', 'Set both a Main and a Peer endpoint before running this pairing.');
+        if (! $folder->main_device_id || $folder->peers()->count() === 0) {
+            return back()->with('warning', 'Set a Main endpoint and at least one peer before running this pairing.');
         }
 
         RunSyncJob::dispatch($folder->id);
@@ -160,45 +170,94 @@ class FolderController extends Controller
         abort_unless($folder->isVisibleTo(auth()->user()), 403);
     }
 
+    /** Replace the pairing's peer set, stamping each peer with the resolved role. */
+    private function syncPeers(Folder $folder, array $peerIds, string $mode): void
+    {
+        $sync = [];
+        foreach ($peerIds as $id) {
+            $sync[(int) $id] = ['mode' => $mode];
+        }
+        $folder->peers()->sync($sync);
+    }
+
     private function validated(Request $request, ?Folder $folder = null): array
     {
-        $visibleIds = Device::visibleTo(auth()->user())->pluck('id')->all();
+        $user = auth()->user();
+        $visibleIds = Device::visibleTo($user)->pluck('id')->all();
+        $visibleGroupIds = DeviceGroup::visibleTo($user)->pluck('id')->all();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'folder_id' => ['nullable', 'string', 'max:120', Rule::unique('folders', 'folder_id')->ignore($folder?->id)],
             'main_device_id' => ['required', Rule::in($visibleIds)],
-            'peer_device_id' => ['required', Rule::in($visibleIds)],
             'main_mode' => ['required', Rule::in(array_keys(Folder::MODES))],
-            'peer_mode' => ['required', Rule::in(array_keys(Folder::MODES))],
+            'peer_device_ids' => ['nullable', 'array'],
+            'peer_device_ids.*' => ['integer', Rule::in($visibleIds)],
+            'peer_group_ids' => ['nullable', 'array'],
+            'peer_group_ids.*' => ['integer', Rule::in($visibleGroupIds)],
             'subpath' => ['nullable', 'string', 'max:1024'],
+            'schedule_mode' => ['required', Rule::in(array_keys(Folder::SCHEDULE_MODES))],
             'interval_minutes' => ['nullable', 'integer', 'min:0', 'max:525600'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'owner_id' => ['nullable', Rule::exists('users', 'id')],
         ], [
             'main_device_id.in' => 'Choose a valid Main endpoint.',
-            'peer_device_id.in' => 'Choose a valid Peer endpoint.',
         ]);
 
-        // Main and Peer must be different endpoints.
-        if ($data['main_device_id'] == $data['peer_device_id']) {
-            throw ValidationException::withMessages([
-                'peer_device_id' => 'The Main and Peer must be two different endpoints.',
-            ]);
+        // Resolve the peer SET: ad-hoc devices unioned with the (expanded) members
+        // of any selected groups. A group is just a saved set of devices.
+        $adhoc = array_map('intval', (array) ($data['peer_device_ids'] ?? []));
+        $groupIds = array_map('intval', (array) ($data['peer_group_ids'] ?? []));
+        $fromGroups = [];
+        if ($groupIds) {
+            $fromGroups = Device::visibleTo($user)
+                ->whereHas('groups', fn ($q) => $q->whereIn('device_groups.id', $groupIds))
+                ->pluck('id')->all();
         }
+        $peerIds = array_values(array_unique(array_filter(array_merge($adhoc, $fromGroups))));
+        // A peer can never be the Main endpoint.
+        $peerIds = array_values(array_diff($peerIds, [(int) $data['main_device_id']]));
 
-        // Roles must resolve to a real data flow. Exactly one direction of travel:
-        // Send Only + Receive Only (one-way), or Send & Receive on both (two-way).
-        $combo = [$data['main_mode'], $data['peer_mode']];
-        $allowed = [['send_only', 'receive_only'], ['receive_only', 'send_only'], ['send_receive', 'send_receive']];
-        if (! in_array($combo, $allowed, true)) {
-            throw ValidationException::withMessages([
-                'peer_mode' => 'These roles will not move any files. Use Send Only + Receive Only for a one-way mirror, or Send & Receive on both endpoints for two-way sync.',
-            ]);
+        // Resolve per-peer role from the Main mode and enforce a real data flow.
+        if ($data['main_mode'] === 'send_only') {
+            if (count($peerIds) < 1) {
+                throw ValidationException::withMessages([
+                    'peer_device_ids' => 'Add at least one peer endpoint or a device group to fan out to.',
+                ]);
+            }
+            $data['peer_mode'] = 'receive_only';
+        } elseif ($data['main_mode'] === 'receive_only') {
+            if (count($peerIds) !== 1) {
+                throw ValidationException::withMessages([
+                    'peer_device_ids' => 'Pull (Main Receive Only) works with exactly one peer. Use Send Only on the Main to fan out to many peers.',
+                ]);
+            }
+            $data['peer_mode'] = 'send_only';
+        } else { // send_receive
+            if (count($peerIds) !== 1) {
+                throw ValidationException::withMessages([
+                    'peer_device_ids' => 'Two-Way (Send & Receive) works with exactly one peer.',
+                ]);
+            }
+            $data['peer_mode'] = 'send_receive';
         }
 
         $data['enabled'] = $request->boolean('enabled');
         $data['interval_minutes'] = (int) ($data['interval_minutes'] ?? 0);
+
+        // A Scheduled + enabled pairing needs a positive interval or it never runs.
+        if ($data['schedule_mode'] === 'scheduled' && $data['enabled'] && $data['interval_minutes'] < 1) {
+            throw ValidationException::withMessages([
+                'interval_minutes' => 'Set how many minutes between runs (at least 1) for a Scheduled pairing.',
+            ]);
+        }
+
+        // Keep the legacy single-peer column meaningful (set only when there is one).
+        $data['peer_device_id'] = count($peerIds) === 1 ? $peerIds[0] : null;
+        // Stash the resolved peer set for the pivot sync (not a folders column).
+        $data['_peer_ids'] = $peerIds;
+
+        unset($data['peer_device_ids'], $data['peer_group_ids']);
 
         return $data;
     }

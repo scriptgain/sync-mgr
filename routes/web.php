@@ -62,6 +62,10 @@ Route::middleware(['auth', 'security.policy'])->group(function () {
     Route::resource('devices', DeviceController::class);
     Route::post('devices/{device}/test', [DeviceController::class, 'test'])->name('devices.test');
 
+    // Device Groups (fan-out targets). Bulk-delete registered before the resource.
+    Route::delete('device-groups/bulk', [\App\Http\Controllers\DeviceGroupController::class, 'bulkDestroy'])->name('device-groups.bulk-destroy');
+    Route::resource('device-groups', \App\Http\Controllers\DeviceGroupController::class);
+
     // Event feed (read-only).
     Route::get('events', [SyncEventController::class, 'index'])->name('events.index');
     Route::delete('events/bulk', [SyncEventController::class, 'bulkDestroy'])->name('events.bulk-destroy');

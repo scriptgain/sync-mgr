@@ -25,7 +25,9 @@
             x-data="{
                 selected: [],
                 confirming: false,
+                groupFilter: null,
                 allIds: [{{ $devices->pluck('id')->implode(',') }}],
+                inGroup(ids) { return this.groupFilter === null || ids.includes(this.groupFilter); },
                 submitBulk() {
                     const f = this.$refs.bulkForm;
                     f.querySelectorAll('input.js-dyn').forEach(n => n.remove());
@@ -38,6 +40,20 @@
                 }
             }">
             <form method="POST" action="{{ route('devices.bulk-destroy') }}" x-ref="bulkForm" class="hidden">@csrf @method('DELETE')</form>
+
+            @if ($groupFilters->isNotEmpty())
+                <div class="mb-3 flex flex-wrap items-center gap-2">
+                    <span class="text-sm text-slate-500">Filter By Group:</span>
+                    <button type="button" @click="groupFilter = null"
+                        :class="groupFilter === null ? 'bg-brand-600 text-white ring-brand-600' : 'text-slate-600 ring-slate-200 hover:ring-slate-300'"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset transition">All</button>
+                    @foreach ($groupFilters as $gf)
+                        <button type="button" @click="groupFilter = {{ $gf->id }}"
+                            :class="groupFilter === {{ $gf->id }} ? 'bg-brand-600 text-white ring-brand-600' : 'text-slate-600 ring-slate-200 hover:ring-slate-300'"
+                            class="px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset transition">{{ $gf->name }}</button>
+                    @endforeach
+                </div>
+            @endif
 
             <div x-show="selected.length" x-cloak class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-50 px-4 py-2.5 ring-1 ring-inset ring-brand-200">
                 <span class="text-sm font-medium text-brand-800"><span x-text="selected.length"></span> selected</span>
@@ -69,12 +85,12 @@
                                     class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
                             </button>
                         </th>
-                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Type</th><th>Host</th><th>Status</th><th>Pairings</th><th class="text-right">Actions</th>
+                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Type</th><th>Host</th><th>Groups</th><th>Status</th><th>Pairings</th><th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach ($devices as $d)
-                        <tr>
+                        <tr x-show="inGroup({{ \Illuminate\Support\Js::from($d->groups->pluck('id')->all()) }})" x-cloak>
                             <td>
                                 <button type="button" role="switch"
                                     :aria-checked="selected.includes({{ $d->id }}).toString()"
@@ -92,6 +108,17 @@
                             @if (auth()->user()->isAdmin())<td class="text-slate-500">{{ $d->owner?->name ?? 'Unassigned' }}</td>@endif
                             <td><x-badge color="neutral">{{ $d->typeLabel() }}</x-badge></td>
                             <td class="text-slate-500">{{ $d->endpoint_type === 'local' ? 'localhost' : ($d->host ?: '—') }}</td>
+                            <td>
+                                @if ($d->groups->isEmpty())
+                                    <span class="text-slate-300">—</span>
+                                @else
+                                    <div class="flex flex-wrap gap-1">
+                                        @foreach ($d->groups as $g)
+                                            <a href="{{ route('device-groups.show', $g) }}"><x-badge color="info">{{ $g->name }}</x-badge></a>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </td>
                             <td><x-badge :color="$statusColors[$d->status] ?? 'neutral'" dot>{{ $d->statusLabel() }}</x-badge></td>
                             <td class="tabular text-slate-500">{{ number_format($d->folders_count) }}</td>
                             <td class="text-right">
