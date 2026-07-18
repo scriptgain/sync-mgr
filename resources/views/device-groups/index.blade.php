@@ -104,9 +104,9 @@
                                 </button>
                             </td>
                             <td class="font-medium text-slate-900">
-                                <a href="{{ route('device-groups.show', $g) }}" class="inline-flex items-center gap-2.5 hover:text-brand-700">
-                                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold ring-1 ring-inset ring-brand-200">{{ $g->initial() }}</span>
-                                    <span>{{ $g->name }}</span>
+                                <a href="{{ route('device-groups.show', $g) }}" class="inline-flex min-w-0 max-w-full items-center gap-2.5 hover:text-brand-700">
+                                    <span class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold ring-1 ring-inset ring-brand-200">{{ $g->initial() }}</span>
+                                    <span class="truncate" data-tip="{{ $g->name }}">{{ $g->name }}</span>
                                 </a>
                             </td>
                             @if (auth()->user()->isAdmin())<td class="text-slate-500">{{ $g->owner?->name ?? 'Unassigned' }}</td>@endif

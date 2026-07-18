@@ -85,22 +85,81 @@
                 @if ($events->isEmpty())
                     <div class="p-6"><x-empty-state icon="clock" title="No Runs Yet" description="Click Sync Now to run this pairing. Results appear here." /></div>
                 @else
-                    <x-table flush>
-                        <thead><tr><th>Status</th>@if ($isFanOut)<th>Peer</th>@endif<th>Files</th><th>Size</th><th>Duration</th><th>Message</th><th>When</th></tr></thead>
-                        <tbody>
-                            @foreach ($events as $e)
+                    <div
+                        x-data="{
+                            selected: [],
+                            allIds: [{{ $events->pluck('id')->implode(',') }}],
+                            submitBulk() {
+                                const f = this.$refs.bulkForm;
+                                f.querySelectorAll('input.js-dyn').forEach(n => n.remove());
+                                this.selected.forEach(id => {
+                                    const i = document.createElement('input');
+                                    i.type = 'hidden'; i.name = 'ids[]'; i.value = id; i.className = 'js-dyn';
+                                    f.appendChild(i);
+                                });
+                                f.submit();
+                            }
+                        }">
+                        <form method="POST" action="{{ route('events.bulk-destroy') }}" x-ref="bulkForm" class="hidden">@csrf @method('DELETE')</form>
+
+                        {{-- Bulk action bar --}}
+                        <div x-show="selected.length" x-cloak class="mx-4 mt-4 mb-1 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-50 px-4 py-2.5 ring-1 ring-inset ring-brand-200">
+                            <span class="text-sm font-medium text-brand-800"><span x-text="selected.length"></span> Selected</span>
+                            <x-button type="button" variant="danger" size="sm" icon="trash" x-on:click="$dispatch('open-modal', 'bulk-delete-runs')">Delete Selected</x-button>
+                        </div>
+
+                        {{-- Fleet-modal confirmation for the bulk delete --}}
+                        <x-modal name="bulk-delete-runs" title="Delete Selected Runs?" icon="trash" tone="danger" maxWidth="max-w-md">
+                            This permanently removes <span x-text="selected.length"></span> selected run record(s) from this pairing's history. This cannot be undone.
+                            <x-slot:footer>
+                                <x-button variant="secondary" size="sm" x-on:click="$dispatch('close-modal', 'bulk-delete-runs')">Cancel</x-button>
+                                <x-button variant="danger" size="sm" icon="trash" x-on:click="$dispatch('close-modal', 'bulk-delete-runs'); submitBulk()">Delete Runs</x-button>
+                            </x-slot:footer>
+                        </x-modal>
+
+                        <x-table flush>
+                            <thead>
                                 <tr>
-                                    <td><x-badge :color="$e->statusColor()" dot>{{ $e->statusLabel() }}</x-badge></td>
-                                    @if ($isFanOut)<td class="text-slate-600">{{ $e->device?->name ?? '—' }}</td>@endif
-                                    <td class="tabular text-slate-600">{{ number_format($e->files_transferred) }}</td>
-                                    <td class="tabular text-slate-600">{{ \App\Support\Bytes::human($e->bytes_transferred) }}</td>
-                                    <td class="tabular text-slate-600">{{ $e->durationLabel() }}</td>
-                                    <td class="text-slate-600"><a href="{{ route('events.show', $e) }}" class="hover:text-brand-700">{{ \Illuminate\Support\Str::limit($e->message, 60) ?: '—' }}</a></td>
-                                    <td class="text-slate-500">{{ optional($e->occurred_at ?? $e->created_at)->diffForHumans() ?? '—' }}</td>
+                                    <th class="w-10">
+                                        <button type="button" role="switch"
+                                            :aria-checked="(allIds.length > 0 && selected.length === allIds.length).toString()"
+                                            @click="selected = (allIds.length > 0 && selected.length === allIds.length) ? [] : [...allIds]"
+                                            :class="(allIds.length > 0 && selected.length === allIds.length) ? 'bg-brand-600' : 'bg-slate-300'"
+                                            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors align-middle disabled:opacity-40"
+                                            :disabled="allIds.length === 0" aria-label="Select all runs" data-tip="Select All">
+                                            <span :class="(allIds.length > 0 && selected.length === allIds.length) ? 'translate-x-6' : 'translate-x-1'"
+                                                class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
+                                        </button>
+                                    </th>
+                                    <th>Status</th>@if ($isFanOut)<th>Peer</th>@endif<th>Files</th><th>Size</th><th>Duration</th><th>Message</th><th>When</th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </x-table>
+                            </thead>
+                            <tbody>
+                                @foreach ($events as $e)
+                                    <tr>
+                                        <td>
+                                            <button type="button" role="switch"
+                                                :aria-checked="selected.includes({{ $e->id }}).toString()"
+                                                @click="selected.includes({{ $e->id }}) ? selected.splice(selected.indexOf({{ $e->id }}), 1) : selected.push({{ $e->id }})"
+                                                :class="selected.includes({{ $e->id }}) ? 'bg-brand-600' : 'bg-slate-300'"
+                                                class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors align-middle"
+                                                aria-label="Select run">
+                                                <span :class="selected.includes({{ $e->id }}) ? 'translate-x-6' : 'translate-x-1'"
+                                                    class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
+                                            </button>
+                                        </td>
+                                        <td><x-badge :color="$e->statusColor()" dot>{{ $e->statusLabel() }}</x-badge></td>
+                                        @if ($isFanOut)<td class="text-slate-600">{{ $e->device?->name ?? '—' }}</td>@endif
+                                        <td class="tabular text-slate-600">{{ number_format($e->files_transferred) }}</td>
+                                        <td class="tabular text-slate-600">{{ \App\Support\Bytes::human($e->bytes_transferred) }}</td>
+                                        <td class="tabular text-slate-600">{{ $e->durationLabel() }}</td>
+                                        <td class="text-slate-600"><a href="{{ route('events.show', $e) }}" class="hover:text-brand-700">{{ \Illuminate\Support\Str::limit($e->message, 60) ?: '—' }}</a></td>
+                                        <td class="text-slate-500">{{ optional($e->occurred_at ?? $e->created_at)->diffForHumans() ?? '—' }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </x-table>
+                    </div>
                 @endif
             </x-card>
         </div>

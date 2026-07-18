@@ -101,7 +101,7 @@
                             </x-field>
                             <x-field label="Agent Download URL" for="agent_download_url" :error="$errors->first('agent_download_url')"
                                 hint="HTTPS URL the agent fetches the new binary from.">
-                                <x-input id="agent_download_url" name="agent_download_url" :value="$v['agent_download_url']" placeholder="https://github.com/TheLonelyFrogTech/syncmgr-agent/releases" />
+                                <x-input id="agent_download_url" name="agent_download_url" :value="$v['agent_download_url']" placeholder="https://github.com/scriptgain/syncmgr-agent/releases" />
                             </x-field>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">

@@ -74,6 +74,11 @@ class DeviceController extends Controller
     public function show(Device $device)
     {
         $this->guard($device);
+        // Keep a ready-to-use enrollment code baked into the install command
+        // for an unenrolled agent (so the operator never pastes a placeholder).
+        if ($device->isAgent() && ! $device->isEnrolled() && blank($device->enrollment_plain)) {
+            $device->issueEnrollmentToken();
+        }
         $device->load([
             'owner:id,name',
             'groups' => fn ($q) => $q->orderBy('name'),
@@ -81,7 +86,10 @@ class DeviceController extends Controller
             'peerFolders',
         ]);
 
-        return view('devices.show', compact('device'));
+        // Recent runs that touched this endpoint, for the Activity tab.
+        $events = $device->syncEvents()->with('folder:id,name')->latest('occurred_at')->latest('id')->limit(20)->get();
+
+        return view('devices.show', compact('device', 'events'));
     }
 
     public function edit(Device $device)
@@ -162,6 +170,164 @@ class DeviceController extends Controller
     }
 
     /**
+     * Read-only JSON file browser for a live endpoint: lists the contents of the
+     * endpoint's Base Path, plus an optional ?path= subfolder, via rclone lsjson.
+     * Owner-guarded like show(). Agent endpoints are not reachable from the panel
+     * (their files live on the remote machine), so they return a friendly note.
+     */
+    public function browse(Request $request, Device $device, RcloneEngine $engine)
+    {
+        $this->guard($device);
+
+        if (! $device->isLive()) {
+            return response()->json([
+                'ok' => false,
+                'cwd' => '',
+                'entries' => [],
+                'error' => 'This folder lives on the agent machine and cannot be browsed from the panel.',
+            ]);
+        }
+
+        $result = $engine->listPath($device, (string) $request->query('path', ''));
+
+        return response()->json([
+            'ok' => (bool) ($result['ok'] ?? false),
+            'cwd' => $result['cwd'] ?? '',
+            'entries' => $result['entries'] ?? [],
+            'error' => $result['error'] ?? null,
+        ]);
+    }
+
+    /**
+     * Download a live endpoint's path from the panel. With ?file=1 the ?path=
+     * subpath is treated as a single file and streamed directly; otherwise the
+     * folder at ?path= (default = Base Path root) is staged and zipped.
+     *
+     * Owner-guarded like browse(). Agent endpoints are refused (their files live
+     * on the remote machine). A size pre-flight caps huge trees, and the temp
+     * staging dir is always cleaned up — after send and on any failure.
+     */
+    public function downloadZip(Request $request, Device $device, RcloneEngine $engine)
+    {
+        $this->guard($device);
+
+        if (! $device->isLive()) {
+            abort(403, 'This folder lives on the agent machine and cannot be downloaded from the panel.');
+        }
+
+        $path = (string) $request->query('path', '');
+        $single = $request->boolean('file');
+
+        // --- Size guard FIRST: never stage/zip an unreasonably large path. ---
+        $size = $engine->pathSize($device, $path);
+        if (! ($size['ok'] ?? false)) {
+            return back()->with('warning', 'Could not prepare that download. ' . ($size['error'] ?? ''));
+        }
+        $capBytes = (int) config('sync.download_max_bytes', 2 * 1024 * 1024 * 1024);
+        $capFiles = (int) config('sync.download_max_files', 5000);
+        if (($size['bytes'] ?? 0) > $capBytes || ($size['count'] ?? 0) > $capFiles) {
+            AuditLog::record('sync', "Download capped for endpoint \"{$device->name}\": " . \App\Support\Bytes::human($size['bytes']) . " across {$size['count']} file(s) exceeds the panel limit of " . \App\Support\Bytes::human($capBytes) . '.', $device);
+
+            return back()->with('warning', 'That selection is too large to download from the panel (' . \App\Support\Bytes::human($size['bytes']) . ' across ' . number_format($size['count']) . ' file(s)). The limit is ' . \App\Support\Bytes::human($capBytes) . '. Sync it to another endpoint instead.');
+        }
+
+        // Staging dir for the rclone copy. It is removed SYNCHRONOUSLY the moment
+        // the downloadable artifact (zip / single file) has been produced, and on
+        // every failure path. A plain-PHP shutdown backstop covers an unexpected
+        // abort (it does not lean on the Laravel facades, which may be torn down
+        // by shutdown time). The one artifact left in tmp/ is streamed directly
+        // and removed by deleteFileAfterSend once the response is sent.
+        $rand = Str::random(20);
+        $tmpDir = storage_path('app/tmp');
+        $stage = $tmpDir . '/stg-' . $rand;
+        register_shutdown_function(fn () => self::rmrf($stage));
+        \Illuminate\Support\Facades\File::ensureDirectoryExists($stage);
+
+        $copy = $engine->copyToLocal($device, $path, $stage);
+        if (! ($copy['ok'] ?? false)) {
+            self::rmrf($stage);
+
+            return back()->with('warning', 'Could not prepare that download. ' . ($copy['error'] ?? ''));
+        }
+
+        // --- Single file: stream the one file directly, no zip. --------------
+        if ($single) {
+            $base = basename(str_replace('\\', '/', $path));
+            $src = $stage . '/' . $base;
+            if ($base === '' || ! is_file($src)) {
+                self::rmrf($stage);
+
+                return back()->with('warning', 'That file could not be downloaded.');
+            }
+            // Move the file out of the staging dir so the dir can be removed now;
+            // the file itself is cleaned up by deleteFileAfterSend after sending.
+            $out = $tmpDir . '/dlf-' . $rand . '-' . $base;
+            if (! @rename($src, $out)) {
+                @copy($src, $out);
+            }
+            self::rmrf($stage);
+            AuditLog::record('sync', "Downloaded file \"{$base}\" from endpoint \"{$device->name}\".", $device);
+
+            return response()->download($out, $base)->deleteFileAfterSend(true);
+        }
+
+        // --- Folder: zip the staged copy, preserving structure. --------------
+        $files = \Illuminate\Support\Facades\File::allFiles($stage);
+        if (empty($files)) {
+            self::rmrf($stage);
+
+            return back()->with('warning', 'That folder is empty, so there is nothing to download.');
+        }
+
+        $slug = Str::slug($device->name) ?: 'endpoint';
+        $label = $path === '' ? 'root' : (Str::slug(str_replace('/', '-', $path)) ?: 'folder');
+        $zipName = "{$slug}-{$label}-" . now()->format('Ymd') . '.zip';
+        // Build the zip OUTSIDE the staging dir (directly in tmp/) so the staging
+        // dir can be dropped immediately; the zip is removed after send.
+        $zipPath = $tmpDir . '/dl-' . $rand . '-' . $zipName;
+
+        // Preserve the selected folder's own name at the top of the archive
+        // (root download = no prefix, files sit at the archive root).
+        $prefix = $path === '' ? '' : basename(str_replace('\\', '/', $path)) . '/';
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            self::rmrf($stage);
+
+            return back()->with('warning', 'Could not build the zip archive.');
+        }
+        foreach ($files as $f) {
+            $rel = str_replace('\\', '/', $f->getRelativePathname());
+            $zip->addFile($f->getPathname(), $prefix . $rel);
+        }
+        $zip->close();
+        self::rmrf($stage);
+
+        AuditLog::record('sync', 'Downloaded "' . ($path ?: 'Base Path') . "\" as a zip from endpoint \"{$device->name}\" (" . \App\Support\Bytes::human($size['bytes']) . ', ' . number_format($size['count']) . ' file(s)).', $device);
+
+        return response()->download($zipPath, $zipName)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Recursively delete a directory with plain filesystem calls. Safe to call
+     * from a shutdown handler (does not depend on the container being alive).
+     */
+    private static function rmrf(string $dir): void
+    {
+        if ($dir === '' || ! is_dir($dir)) {
+            return;
+        }
+        foreach (@scandir($dir) ?: [] as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $p = $dir . '/' . $item;
+            is_dir($p) && ! is_link($p) ? self::rmrf($p) : @unlink($p);
+        }
+        @rmdir($dir);
+    }
+
+    /**
      * Bulk-delete selected endpoints. Only the submitted ids are touched, and
      * only endpoints the current user is allowed to see.
      */
@@ -192,6 +358,11 @@ class DeviceController extends Controller
 
     private function validated(Request $request, ?Device $device = null): array
     {
+        // The username field is submitted as `conn_ref` in the view to dodge
+        // password-manager autofill; map it back here.
+        if ($request->has('conn_ref')) {
+            $request->merge(['username' => $request->input('conn_ref')]);
+        }
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'endpoint_type' => ['required', Rule::in(array_keys(Device::ENDPOINT_TYPES))],
@@ -201,6 +372,7 @@ class DeviceController extends Controller
             'secret' => ['nullable', 'string', 'max:4096'],
             'private_key' => ['nullable', 'string', 'max:16384'],
             'base_path' => ['nullable', 'string', 'max:1024'],
+            'os' => ['nullable', Rule::in(['windows', 'linux', 'darwin'])],
             'bucket' => ['nullable', 'string', 'max:255'],
             'region' => ['nullable', 'string', 'max:120'],
             'device_id' => ['nullable', 'string', 'max:120', Rule::unique('devices', 'device_id')->ignore($device?->id)],

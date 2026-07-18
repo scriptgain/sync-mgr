@@ -2,7 +2,7 @@
 <div x-data="{
         type: '{{ old('endpoint_type', $d->endpoint_type ?? 'ftp') }}',
         port: '{{ old('port', $d->port ?? '') }}',
-        defaults: { ftp: 21, sftp: 22, s3: '', agent: 5410, local: '' },
+        defaults: { ftp: 21, sftp: 22, s3: '', agent: '', local: '' },
         showSecret: false,
         onType() {
             const known = Object.values(this.defaults).map(String);
@@ -13,6 +13,13 @@
         is(...types) { return types.includes(this.type); }
      }"
      class="space-y-5">
+
+    {{-- Honeypot: absorbs aggressive password-manager autofill (LastPass/1Password/etc)
+         so it never lands on the real credential fields below. Ignored by the controller. --}}
+    <div aria-hidden="true" tabindex="-1" style="position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden">
+        <input type="text" name="_pm_decoy_user" tabindex="-1" autocomplete="username" aria-hidden="true">
+        <input type="password" name="_pm_decoy_pass" tabindex="-1" autocomplete="current-password" aria-hidden="true">
+    </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <x-field label="Endpoint Name" for="name" required :error="$errors->first('name')">
@@ -31,18 +38,29 @@
         </x-field>
     </div>
 
-    {{-- Agent transport notice --}}
-    <div x-show="is('agent')" x-cloak class="rounded-lg bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-200">
-        <p class="text-sm text-amber-800">Agent transport is coming soon. This endpoint will save, but use FTP, SFTP or S3 for live sync today.</p>
+    {{-- Agent transport: dials out + enrolls; no inbound address, port, or password. --}}
+    <div x-show="is('agent')" x-cloak class="rounded-lg bg-sky-50 px-4 py-3 ring-1 ring-inset ring-sky-200">
+        <p class="text-sm text-sky-800">This is an <span class="font-medium">Agent</span> endpoint. Save it, then open its page for a one-time enrollment code and a per-OS install command. The agent runs on the computer you want to sync and dials out to this panel, so there is no address, port, or login to enter here, just the local folder below.</p>
     </div>
 
-    {{-- Host / address + port. Shown for every remote transport. --}}
-    <div x-show="! is('local')" x-cloak class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+    {{-- Agent OS: which platform you'll install on (the agent confirms this on enroll). --}}
+    <div x-show="is('agent')" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <x-field label="Operating System" for="os" :error="$errors->first('os')" hint="Which OS you will install the agent on. The agent confirms this automatically when it enrolls.">
+            <x-select id="os" name="os">
+                <option value="windows" @selected(old('os', $d->os ?? '') === 'windows')>Windows</option>
+                <option value="linux" @selected(old('os', $d->os ?? 'linux') === 'linux')>Linux</option>
+                <option value="darwin" @selected(old('os', $d->os ?? '') === 'darwin')>macOS</option>
+            </x-select>
+        </x-field>
+    </div>
+
+    {{-- Host / address + port. Network transports only. --}}
+    <div x-show="is('ftp','sftp','s3')" x-cloak class="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <x-field class="sm:col-span-2" :error="$errors->first('host')">
             <x-slot:label>
-                <span x-show="is('ftp','sftp')">Host</span><span x-show="is('s3')">Endpoint / Host</span><span x-show="is('agent')">Device Address</span>
+                <span x-show="is('ftp','sftp')">Host</span><span x-show="is('s3')">Endpoint / Host</span>
             </x-slot:label>
-            <x-input name="host" x-bind:required="! is('local')" :value="old('host', $d->host ?? '')" placeholder="ftp.example.com" />
+            <x-input name="host" x-bind:required="is('ftp','sftp','s3')" :value="old('host', $d->host ?? '')" placeholder="ftp.example.com" />
         </x-field>
         <x-field label="Port" :error="$errors->first('port')" :hint="'Defaults per type; editable.'">
             <input type="number" name="port" min="1" max="65535" x-model="port"
@@ -50,13 +68,13 @@
         </x-field>
     </div>
 
-    {{-- Credentials. Every type captures a username + secret. --}}
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+    {{-- Credentials. Network transports only (agent enrolls with a token; local needs none). --}}
+    <div x-show="is('ftp','sftp','s3')" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <x-field :error="$errors->first('username')">
             <x-slot:label>
                 <span x-show="! is('s3')">Username</span><span x-show="is('s3')">Access Key</span>
             </x-slot:label>
-            <x-input name="username" :value="old('username', $d->username ?? '')" autocomplete="off"
+            <x-input name="conn_ref" :value="old('conn_ref', $d->username ?? '')" autocomplete="off"
                 data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                 readonly onfocus="this.removeAttribute('readonly')" placeholder="user" />
         </x-field>
@@ -65,7 +83,7 @@
                 <span x-show="! is('s3')">Password</span><span x-show="is('s3')">Secret Key</span>
             </x-slot:label>
             <div class="relative">
-                <input name="secret" :type="showSecret ? 'text' : 'password'" autocomplete="new-password" value=""
+                <input name="secret" type="text" x-bind:style="showSecret ? '' : '-webkit-text-security:disc;text-security:disc'" autocomplete="new-password" value=""
                     data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
                     readonly onfocus="this.removeAttribute('readonly')"
                     placeholder="{{ $d ? '••••••••' : '' }}"
@@ -91,16 +109,21 @@
             :checked="(bool) old('s3_path_style', $d->s3_path_style ?? false)" />
     </div>
 
-    {{-- Base path. Shown for local/ftp/sftp/s3 (a prefix under the account/bucket). --}}
-    <div x-show="is('local','ftp','sftp','s3')" x-cloak>
+    {{-- Base path / local folder. Also the agent's local sync folder. --}}
+    <div x-show="is('local','ftp','sftp','s3','agent')" x-cloak>
         <x-field :error="$errors->first('base_path')">
             <x-slot:label>
-                <span x-show="is('local')">Local Path</span><span x-show="! is('local')">Base Path</span>
+                <span x-show="is('local')">Local Path</span>
+                <span x-show="is('agent')">Local Folder (On The Agent Computer)</span>
+                <span x-show="is('ftp','sftp','s3')">Base Path</span>
             </x-slot:label>
-            <x-input name="base_path" x-bind:required="is('local')" :value="old('base_path', $d->base_path ?? '')" placeholder="/srv/sync/documents" />
+            <x-input name="base_path" x-bind:required="is('local','agent')"
+                x-bind:placeholder="is('agent') ? 'e.g. C:\\SyncMGR  or  /home/user/sync' : '/srv/sync/documents'"
+                :value="old('base_path', $d->base_path ?? '')" placeholder="/srv/sync/documents" />
             <x-slot:hint>
                 <span x-show="is('local')">Absolute path on this server.</span>
-                <span x-show="! is('local')">Optional subdirectory under the account root that all pairings are relative to.</span>
+                <span x-show="is('agent')">The folder on the agent computer to keep in sync, e.g. <span class="font-mono">C:\SyncMGR</span> or <span class="font-mono">/home/user/sync</span>.</span>
+                <span x-show="is('ftp','sftp','s3')">Optional subdirectory under the account root that all pairings are relative to.</span>
             </x-slot:hint>
         </x-field>
     </div>
@@ -121,7 +144,8 @@
         </x-field>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+    {{-- Status. Hidden for agent (its status is set by enrollment / check-ins). --}}
+    <div x-show="! is('agent')" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <x-field label="Status" for="status" required :error="$errors->first('status')">
             <x-select id="status" name="status" required>
                 @foreach (\App\Models\Device::STATUSES as $val => $label)
@@ -130,6 +154,10 @@
             </x-select>
         </x-field>
     </div>
+    {{-- Agent status is enrollment-driven; submit a sane default without showing the control. --}}
+    <template x-if="is('agent')">
+        <input type="hidden" name="status" :value="'{{ old('status', $d->status ?? 'disconnected') }}'">
+    </template>
 
     <x-field label="Notes" for="notes" :error="$errors->first('notes')">
         <textarea id="notes" name="notes" rows="3"

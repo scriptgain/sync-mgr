@@ -31,7 +31,8 @@
             document.querySelectorAll('.vx-table td').forEach(function (td) {
                 // Skip cells that already carry a rich [data-tip] tooltip.
                 if (td.querySelector('[data-tip]') || td.hasAttribute('data-tip')) return;
-                if (!td.title && td.scrollWidth > td.clientWidth + 1) td.title = td.textContent.trim();
+                if (td.querySelectorAll('*').length > 1) return; // skip structured cells (avatars, multi-span)
+                if (td.scrollWidth > td.clientWidth + 1) td.setAttribute('data-tip', td.textContent.trim());
             });
         }
         if (document.readyState !== 'loading') tag();

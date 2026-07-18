@@ -19,6 +19,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Security
 - Agent enrollment tokens and API keys stored hashed (sha256) and hidden from serialization; remote credentials are delivered to the agent per-poll only, never persisted server-side.
 
+## [1.2.0] - 2026-07-18
+
+### Added
+- **Cross-platform agent transport**: install a Go agent (Windows/macOS/Linux) that dials out, enrolls, and syncs a local folder to/from remote endpoints with **real-time on-change** watching and two-way support. Master-hosted, signed, self-updating (agent 0.4.2). Agent device type: OS picker, local-folder, enrollment code baked into the per-OS install command.
+- **Device file browser** on the endpoint page: browse folder contents (breadcrumb navigation) for server-reachable endpoints, with a traversal guard.
+- **Download**: grab a single file or a whole folder as a **.zip** from the panel (size-capped, temp-cleaned).
+- **Device Groups**: searchable multi-select membership picker (no more full endpoint dumps).
+- **Multi-delete** on a folder's Recent Runs.
+- "This Server" style SFTP endpoints; **Sync Activity** chart now shows per-day counts on hover; real **folder size + file count** on the dashboard.
+
+### Changed
+- Device detail page rebuilt into a **tabbed** layout (Install / Overview / Connection / Pairings / Activity / Files) — no more long scroll. Tightened the shared page header (back link on the title row).
+- No-op syncs (0 files, no error) no longer create event rows — they just update "last checked", keeping Activity and Recent Runs clean.
+
+### Fixed
+- SFTP inline private-key auth (`KEY_PEM` needed `\n`-escaping) — affected all SFTP-key endpoints.
+- Password-manager autofill no longer hijacks endpoint credential fields (masked secret + renamed field + honeypot).
+- Truncated table cells now use the body-anchored tooltip; long group names truncate cleanly.
+
 ## [1.1.0] - 2026-07-18
 
 ### Added

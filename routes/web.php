@@ -61,6 +61,8 @@ Route::middleware(['auth', 'security.policy'])->group(function () {
     Route::delete('devices/bulk', [DeviceController::class, 'bulkDestroy'])->name('devices.bulk-destroy');
     Route::resource('devices', DeviceController::class);
     Route::post('devices/{device}/test', [DeviceController::class, 'test'])->name('devices.test');
+    Route::get('devices/{device}/browse', [DeviceController::class, 'browse'])->name('devices.browse');
+    Route::get('devices/{device}/download', [DeviceController::class, 'downloadZip'])->name('devices.download');
     Route::post('devices/{device}/enrollment-token', [DeviceController::class, 'reissueToken'])->name('devices.enrollment-token');
 
     // Device Groups (fan-out targets). Bulk + pause routes registered before the

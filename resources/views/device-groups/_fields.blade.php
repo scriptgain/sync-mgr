@@ -3,6 +3,12 @@
     $endpoints = $endpoints ?? collect();
     $selectedDeviceIds = collect(old('devices', $g?->devices?->pluck('id')->all() ?? []))
         ->map(fn ($v) => (int) $v)->all();
+    $deviceData = $endpoints->map(fn ($ep) => [
+        'id' => $ep->id,
+        'name' => $ep->name,
+        'type' => $ep->typeLabel(),
+        'host' => $ep->endpoint_type === 'local' ? 'localhost' : ($ep->host ?: ''),
+    ])->values();
 @endphp
 <div class="space-y-5">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -17,23 +23,24 @@
             placeholder="Optional description of what this group is for.">{{ old('description', $g->description ?? '') }}</textarea>
     </x-field>
 
-    {{-- Membership: assign a set of endpoints to this group. --}}
+    {{-- Membership: search + select multiple endpoints (no full list dump). --}}
     <div class="rounded-xl ring-1 ring-slate-200 p-4"
          x-data="{
             members: {{ \Illuminate\Support\Js::from($selectedDeviceIds) }},
-            allIds: [{{ $endpoints->pluck('id')->implode(',') }}],
-            toggle(id) { this.members.includes(id) ? this.members.splice(this.members.indexOf(id), 1) : this.members.push(id); },
-            get allSelected() { return this.allIds.length > 0 && this.members.length === this.allIds.length; },
-            toggleAll() { this.members = this.allSelected ? [] : [...this.allIds]; }
+            all: {{ \Illuminate\Support\Js::from($deviceData) }},
+            search: '',
+            get selected() { return this.all.filter(d => this.members.includes(d.id)); },
+            get results() {
+                const q = this.search.trim().toLowerCase();
+                return this.all.filter(d => ! this.members.includes(d.id)
+                    && (q === '' || (d.name + ' ' + d.type + ' ' + d.host).toLowerCase().includes(q)));
+            },
+            add(id) { if (! this.members.includes(id)) this.members.push(id); this.search = ''; },
+            remove(id) { this.members = this.members.filter(x => x !== id); }
          }">
-        <div class="flex items-center justify-between gap-3 mb-3">
-            <div class="flex items-center gap-2">
-                <x-badge color="info" dot>Members</x-badge>
-                <span class="text-sm text-slate-500">Endpoints this group fans a sync out to. <span x-text="members.length"></span> selected.</span>
-            </div>
-            @if ($endpoints->isNotEmpty())
-                <button type="button" @click="toggleAll()" class="text-sm font-medium text-brand-700 hover:text-brand-800" x-text="allSelected ? 'Clear All' : 'Select All'"></button>
-            @endif
+        <div class="flex items-center gap-2 mb-3">
+            <x-badge color="info" dot>Members</x-badge>
+            <span class="text-sm text-slate-500">Endpoints this group fans a sync out to. <span x-text="members.length"></span> selected.</span>
         </div>
 
         @if ($endpoints->isEmpty())
@@ -41,26 +48,46 @@
                 <p class="text-sm text-amber-800">You have no endpoints yet. <a href="{{ route('devices.create') }}" class="font-medium underline">Add an endpoint</a> first, then add it to this group.</p>
             </div>
         @else
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                @foreach ($endpoints as $ep)
-                    <label class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-inset transition cursor-pointer"
-                           :class="members.includes({{ $ep->id }}) ? 'bg-brand-50 ring-brand-200' : 'bg-white ring-slate-200 hover:ring-slate-300'">
-                        <span class="min-w-0">
-                            <span class="block text-sm font-medium text-slate-900 truncate">{{ $ep->name }}</span>
-                            <span class="block text-xs text-slate-500">{{ $ep->typeLabel() }}{{ $ep->host ? ' · ' . $ep->host : '' }}</span>
-                        </span>
-                        <button type="button" role="switch" @click.prevent="toggle({{ $ep->id }})"
-                            :aria-checked="members.includes({{ $ep->id }}).toString()"
-                            :class="members.includes({{ $ep->id }}) ? 'bg-brand-600' : 'bg-slate-300'"
-                            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
-                            aria-label="Toggle membership">
-                            <span :class="members.includes({{ $ep->id }}) ? 'translate-x-6' : 'translate-x-1'"
-                                class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
+            {{-- Selected chips --}}
+            <div class="flex flex-wrap gap-2 mb-3" x-show="selected.length" x-cloak>
+                <template x-for="d in selected" :key="d.id">
+                    <span class="inline-flex max-w-[14rem] items-center gap-1.5 rounded-lg bg-brand-50 ring-1 ring-inset ring-brand-200 pl-2.5 pr-1.5 py-1 text-sm text-brand-800" :data-tip="d.name">
+                        <span class="truncate font-medium" x-text="d.name"></span>
+                        <button type="button" @click="remove(d.id)" class="rounded p-0.5 text-brand-500 hover:bg-brand-100 hover:text-brand-700" aria-label="Remove">
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 6.28a.75.75 0 011.06 0L10 8.94l2.66-2.66a.75.75 0 111.06 1.06L11.06 10l2.66 2.66a.75.75 0 11-1.06 1.06L10 11.06l-2.66 2.66a.75.75 0 01-1.06-1.06L8.94 10 6.28 7.34a.75.75 0 010-1.06z"/></svg>
                         </button>
-                    </label>
-                @endforeach
+                    </span>
+                </template>
             </div>
-            {{-- Hidden inputs mirror the Alpine `members` array for submission. --}}
+
+            {{-- Search box --}}
+            <div class="relative">
+                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="6"/><path d="M15 15l3 3" stroke-linecap="round"/></svg>
+                </div>
+                <input type="text" x-model="search"
+                    placeholder="Search endpoints by name, type, or host..."
+                    class="block w-full rounded-lg border-0 bg-white pl-9 pr-3 py-2 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-brand-500" />
+            </div>
+
+            {{-- Results (only unselected, filtered by search) --}}
+            <div class="mt-2 max-h-64 overflow-y-auto rounded-lg ring-1 ring-inset ring-slate-200 divide-y divide-slate-100">
+                <template x-for="d in results" :key="d.id">
+                    <button type="button" @click="add(d.id)" class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-brand-50 hover:ring-1 hover:ring-inset hover:ring-brand-200">
+                        <span class="min-w-0">
+                            <span class="block text-sm font-medium text-slate-900 truncate" x-text="d.name"></span>
+                            <span class="block text-xs text-slate-500 truncate"><span x-text="d.type"></span><span x-show="d.host" x-text="' · ' + d.host"></span></span>
+                        </span>
+                        <span class="shrink-0 text-sm font-medium text-brand-700">Add</span>
+                    </button>
+                </template>
+                <div x-show="results.length === 0" class="px-3 py-4 text-center text-sm text-slate-400">
+                    <span x-show="search.trim() !== ''">No endpoints match &ldquo;<span x-text="search"></span>&rdquo;.</span>
+                    <span x-show="search.trim() === ''" x-cloak>All endpoints are selected.</span>
+                </div>
+            </div>
+
+            {{-- Hidden inputs mirror the Alpine members array for submission. --}}
             <template x-for="id in members" :key="id">
                 <input type="hidden" name="devices[]" :value="id">
             </template>

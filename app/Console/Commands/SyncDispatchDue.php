@@ -42,7 +42,12 @@ class SyncDispatchDue extends Command
             ->whereDoesntHave('mainDevice', fn ($d) => $d->where('endpoint_type', 'agent'))
             ->whereDoesntHave('peers', fn ($p) => $p->where('endpoint_type', 'agent'))
             ->where(fn ($q) => $q->whereNull('next_run_at')->orWhere('next_run_at', '<=', now()))
-            ->get();
+            ->get()
+            // Skip pairings whose entire peer set is currently paused out (every peer
+            // is in a paused device group): a paused pairing must run nothing and log
+            // nothing, not emit a "skipped" scan every tick.
+            ->filter(fn ($folder) => $folder->effectivePeers()->isNotEmpty())
+            ->values();
 
         foreach ($due as $folder) {
             // Push next_run_at forward immediately so overlapping ticks don't

@@ -28,7 +28,7 @@ class Device extends Model
         'ftp' => 'FTP',
         'sftp' => 'SFTP',
         's3' => 'S3 / Object Storage',
-        'agent' => 'Agent / Device Login',
+        'agent' => 'Agent',
         'local' => 'Local Path (Same Host)',
     ];
 
@@ -53,7 +53,7 @@ class Device extends Model
 
     // enrollment_token + api_key are pairing secrets: never mass-assignable and
     // hidden from serialization. They are written via forceFill() only.
-    protected $hidden = ['secret', 'private_key', 'enrollment_token', 'api_key'];
+    protected $hidden = ['secret', 'private_key', 'enrollment_token', 'enrollment_plain', 'api_key'];
 
     protected function casts(): array
     {
@@ -181,7 +181,7 @@ class Device extends Model
     public function issueEnrollmentToken(): string
     {
         $plain = 'syncenr_' . Str::random(40);
-        $this->forceFill(['enrollment_token' => hash('sha256', $plain)])->save();
+        $this->forceFill(['enrollment_token' => hash('sha256', $plain), 'enrollment_plain' => $plain])->save();
 
         return $plain;
     }

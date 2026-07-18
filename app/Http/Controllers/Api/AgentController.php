@@ -53,7 +53,7 @@ class AgentController extends Controller
         $plainKey = 'syncagt_' . Str::random(48);
         $device->forceFill([
             'api_key' => hash('sha256', $plainKey),
-            'enrollment_token' => null, // one-time: burn it on success
+            'enrollment_token' => null, 'enrollment_plain' => null, // one-time: burn it on success
             'status' => 'connected',
             'os' => $data['os'] ?? $device->os,
             'arch' => $data['arch'] ?? $device->arch,
@@ -87,7 +87,7 @@ class AgentController extends Controller
         return response()->json([
             'poll_interval' => $interval > 0 ? $interval : 30,
             'license' => $this->licenseBlob(),
-            'update' => $this->updateOffer(),
+            'update' => $this->updateOffer($device->os, $device->arch),
         ]);
     }
 
@@ -263,22 +263,55 @@ class AgentController extends Controller
     }
 
     /**
-     * Advertise a newer agent build only when auto-update is on AND all four
-     * fields are set. The agent refuses any offer without a checksum + vendor
-     * signature over a non-https URL, so a half-configured offer just wastes a
-     * download — withhold it. Mirrors BackupMGR.
+     * Advertise a newer agent build for the calling agent's platform, only when
+     * auto-update is on. The agent sends its os/arch on every heartbeat, so we
+     * hand back the download URL + sha256 + vendor signature for ITS build (the
+     * version is shared across platforms; each binary has its own sha256 +
+     * signature).
+     *
+     * Preferred source is a per-platform manifest (agent_download_manifest, a
+     * JSON map of "os/arch" => {url, sha256, signature}); a legacy single-artifact
+     * fallback (the flat agent_download_* settings, BackupMGR-style) is kept for
+     * back-compat. The agent refuses any offer without a checksum + vendor
+     * signature over an https URL, so a half-configured offer just wastes a
+     * download — withhold it.
      */
-    private function updateOffer(): ?array
+    private function updateOffer(?string $os = null, ?string $arch = null): ?array
     {
         $s = Setting::map();
         if (($s['agent_auto_update'] ?? '0') !== '1') {
             return null;
         }
         $version = trim($s['agent_latest_version'] ?? '');
+        if ($version === '') {
+            return null;
+        }
+
+        // Preferred: per-platform manifest keyed by "os/arch".
+        $manifest = json_decode($s['agent_download_manifest'] ?? '', true);
+        if (is_array($manifest)) {
+            if (! $os || ! $arch) {
+                return null; // cannot select a platform build without the agent's os/arch
+            }
+            $entry = $manifest[$os.'/'.$arch] ?? null;
+            if (! is_array($entry)) {
+                return null; // no build published for this platform: offer nothing
+            }
+            $url = trim($entry['url'] ?? '');
+            $sha256 = strtolower(trim($entry['sha256'] ?? ''));
+            $signature = trim($entry['signature'] ?? '');
+            if ($url === '' || $sha256 === '' || $signature === '') {
+                return null;
+            }
+
+            return compact('version', 'url', 'sha256', 'signature');
+        }
+
+        // Legacy single-artifact fallback (flat settings).
         $url = trim($s['agent_download_url'] ?? '');
         $sha256 = strtolower(trim($s['agent_download_sha256'] ?? ''));
         $signature = trim($s['agent_download_signature'] ?? '');
-        if ($version === '' || $url === '' || $sha256 === '' || $signature === '') {
+        if ($url === '' || $sha256 === '' || $signature === '') {
             return null;
         }
 

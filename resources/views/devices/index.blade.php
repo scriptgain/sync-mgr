@@ -114,7 +114,7 @@
                                 @else
                                     <div class="flex flex-wrap gap-1">
                                         @foreach ($d->groups as $g)
-                                            <a href="{{ route('device-groups.show', $g) }}"><x-badge color="info">{{ $g->name }}</x-badge></a>
+                                            <a href="{{ route('device-groups.show', $g) }}" data-tip="{{ $g->name }}"><x-badge color="info">{{ \Illuminate\Support\Str::limit($g->name, 12) }}</x-badge></a>
                                         @endforeach
                                     </div>
                                 @endif

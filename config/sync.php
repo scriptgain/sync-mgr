@@ -25,4 +25,10 @@ return [
     'transfers' => (int) env('SYNC_TRANSFERS', 4),
     'checkers' => (int) env('SYNC_CHECKERS', 8),
 
+    // Panel "download as zip": a folder/file larger than this (bytes) or with
+    // more than this many files is refused rather than staged + zipped, so a
+    // huge tree can't exhaust disk or wedge a web worker. ~2 GB default.
+    'download_max_bytes' => (int) env('SYNC_DOWNLOAD_MAX_BYTES', 2 * 1024 * 1024 * 1024),
+    'download_max_files' => (int) env('SYNC_DOWNLOAD_MAX_FILES', 5000),
+
 ];

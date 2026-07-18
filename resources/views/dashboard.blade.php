@@ -97,6 +97,13 @@
                             $issueH = $d['total'] ? round($d['issues'] / $d['total'] * $h, 1) : 0;
                             $doneH = $d['total'] ? round($d['done'] / $d['total'] * $h, 1) : 0;
                             $otherH = round($h - $issueH - $doneH, 1);
+                            $other = $d['total'] - $d['done'] - $d['issues'];
+                            $tip = $d['label'] . ': ' . $d['total'] . ' ' . \Illuminate\Support\Str::plural('event', $d['total']);
+                            $bd = [];
+                            if ($d['done'] > 0) { $bd[] = $d['done'] . ' completed'; }
+                            if ($other > 0) { $bd[] = $other . ' scan/index'; }
+                            if ($d['issues'] > 0) { $bd[] = $d['issues'] . ' ' . \Illuminate\Support\Str::plural('issue', $d['issues']); }
+                            if ($bd) { $tip .= "\n" . implode(' · ', $bd); }
                         @endphp
                         @if ($h === 0.0 || $h === 0)
                             <rect x="{{ $x }}" y="{{ $baseY - 3 }}" width="{{ round($barW, 1) }}" height="3" rx="1.5" fill="#e2e8f0" />
@@ -114,6 +121,7 @@
                                 <rect x="{{ $x }}" y="{{ round($cursor - $doneH, 1) }}" width="{{ round($barW, 1) }}" height="{{ $doneH }}" rx="2" class="bk-ok-fill" />
                             @endif
                         @endif
+                        <rect x="{{ round($cx - $slot / 2, 1) }}" y="{{ $padT }}" width="{{ round($slot, 1) }}" height="{{ $plotH }}" fill="transparent" pointer-events="all" data-tip="{{ $tip }}" />
                         @if ($i === 0 || $i === intdiv($n, 2) || $i === $n - 1)
                             <text x="{{ round($cx, 1) }}" y="{{ $ch - 6 }}" text-anchor="{{ $i === 0 ? 'start' : ($i === $n - 1 ? 'end' : 'middle') }}" fill="#94a3b8" style="font-size:11px">{{ $d['label'] }}</text>
                         @endif
