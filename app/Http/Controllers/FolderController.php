@@ -106,6 +106,30 @@ class FolderController extends Controller
         return redirect()->route('folders.index')->with('status', "Folder \"{$name}\" deleted.");
     }
 
+    /**
+     * Bulk-delete selected folders. Only the submitted ids are touched, and
+     * only folders the current user is allowed to see.
+     */
+    public function bulkDestroy(Request $request)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $ids = Folder::visibleTo(auth()->user())->whereIn('id', $data['ids'])->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return back()->with('warning', 'No matching folders were selected.');
+        }
+
+        $count = Folder::whereIn('id', $ids->all())->delete();
+
+        AuditLog::record('deleted', "Bulk deleted {$count} folder".($count === 1 ? '' : 's').'.');
+
+        return back()->with('status', $count.' folder'.($count === 1 ? '' : 's').' deleted.');
+    }
+
     /** Share the folder with the selected devices, limited to devices the user may see. */
     private function syncDevices(Request $request, Folder $folder): void
     {

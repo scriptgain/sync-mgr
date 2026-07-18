@@ -93,6 +93,30 @@ class DeviceController extends Controller
         return redirect()->route('devices.index')->with('status', "Device \"{$name}\" deleted.");
     }
 
+    /**
+     * Bulk-delete selected devices. Only the submitted ids are touched, and
+     * only devices the current user is allowed to see.
+     */
+    public function bulkDestroy(Request $request)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $ids = Device::visibleTo(auth()->user())->whereIn('id', $data['ids'])->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return back()->with('warning', 'No matching devices were selected.');
+        }
+
+        $count = Device::whereIn('id', $ids->all())->delete();
+
+        AuditLog::record('deleted', "Bulk deleted {$count} device".($count === 1 ? '' : 's').'.');
+
+        return back()->with('status', $count.' device'.($count === 1 ? '' : 's').' deleted.');
+    }
+
     private function guard(Device $device): void
     {
         abort_unless($device->isVisibleTo(auth()->user()), 403);

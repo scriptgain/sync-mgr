@@ -53,9 +53,11 @@ Route::middleware(['auth', 'security.policy'])->group(function () {
     Route::get('/', DashboardController::class)->name('dashboard');
 
     // Synced folders and their shared devices.
+    Route::delete('folders/bulk', [FolderController::class, 'bulkDestroy'])->name('folders.bulk-destroy');
     Route::resource('folders', FolderController::class);
 
     // Peer devices in the sync cluster.
+    Route::delete('devices/bulk', [DeviceController::class, 'bulkDestroy'])->name('devices.bulk-destroy');
     Route::resource('devices', DeviceController::class);
 
     // Event feed (read-only).
