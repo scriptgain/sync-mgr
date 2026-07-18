@@ -14,13 +14,13 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="lg:col-span-2 space-y-6">
-            <x-card title="Member Endpoints">
+            <x-card title="Member Endpoints" :flush="$group->devices->isNotEmpty()">
                 @if ($group->devices->isEmpty())
                     <x-empty-state icon="server" title="No Members" description="Edit this group to add endpoints. A pairing that fans out to it will push to every member.">
                         <x-slot:action><x-button icon="edit" variant="secondary" href="{{ route('device-groups.edit', $group) }}">Add Endpoints</x-button></x-slot:action>
                     </x-empty-state>
                 @else
-                    <x-table>
+                    <x-table flush>
                         <thead><tr><th>Name</th><th>Type</th><th>Host</th><th>Status</th></tr></thead>
                         <tbody>
                             @foreach ($group->devices as $d)

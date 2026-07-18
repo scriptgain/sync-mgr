@@ -73,7 +73,7 @@
                         <div class="mt-2"><x-badge :color="$folder->peer_mode === 'send_receive' ? 'warn' : 'neutral'">{{ $folder->peerModeLabel() }}{{ $peerCount > 1 ? ' (each peer)' : '' }}</x-badge></div>
                     </div>
                 </div>
-                <div class="mt-4 rounded-lg bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
+                <div class="mt-4 rounded-lg ring-1 ring-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
                     <span class="font-medium text-slate-700">{{ $folder->flowLabel() }}</span>
                     @if ($op === 'bisync')<span class="text-amber-700"> — two-way bisync is coming soon; one-way pairings run today.</span>@endif
                     @if ($isFanOut)<span class="text-slate-500"> — one SyncEvent is recorded per peer on each run.</span>@endif

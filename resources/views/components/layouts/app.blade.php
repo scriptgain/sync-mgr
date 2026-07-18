@@ -83,10 +83,10 @@
                 'active' => request()->routeIs('dashboard')],
             ['type' => 'link', 'label' => 'Folders', 'href' => route('folders.index'), 'icon' => 'folder',
                 'active' => request()->routeIs('folders.*')],
+            ['type' => 'link', 'label' => 'Device Groups', 'href' => route('device-groups.index'), 'icon' => 'users',
+                'active' => request()->routeIs('device-groups.*')],
             ['type' => 'link', 'label' => 'Devices', 'href' => route('devices.index'), 'icon' => 'server',
                 'active' => request()->routeIs('devices.*')],
-            ['type' => 'link', 'label' => 'Groups', 'href' => route('device-groups.index'), 'icon' => 'users',
-                'active' => request()->routeIs('device-groups.*')],
             ['type' => 'link', 'label' => 'Events', 'href' => route('events.index'), 'icon' => 'clock',
                 'active' => request()->routeIs('events.*')],
         ];

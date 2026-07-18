@@ -57,7 +57,7 @@ class GeneralSettingsController extends Controller
             'now' => now(),
             'info' => [
                 'Product' => config('brand.name', 'Backup Manager'),
-                'App Version' => config('app.version', '1.0.0'),
+                'App Version' => \App\Services\UpdateService::currentVersion(),
                 'PHP' => PHP_VERSION,
                 'Laravel' => app()->version(),
                 'Database' => config('database.default'),
