@@ -33,3 +33,6 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+
+# bundled rclone engine binary (fetched by deploy/local/fetch-rclone.sh)
+/bin/rclone

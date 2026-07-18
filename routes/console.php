@@ -12,6 +12,14 @@ Artisan::command('inspire', function () {
 // window, so it is safe to attempt hourly (installer wires `schedule:run` cron).
 Schedule::command('sync:maintenance')->hourly()->withoutOverlapping();
 
+// --- Sync engine ---------------------------------------------------------
+// Every minute: queue a RunSyncJob for each enabled pairing whose interval has
+// elapsed, then drain the queue so those jobs (and any "Sync Now" jobs) run
+// without needing a dedicated long-running worker.
+Schedule::command('sync:dispatch-due')->everyMinute()->withoutOverlapping();
+Schedule::command('queue:work --stop-when-empty --max-time=55 --tries=1')
+    ->everyMinute()->withoutOverlapping()->runInBackground();
+
 // Periodic ONLINE license validation against ScriptGain (~every 2 days).
 // Verifies the signed /v1/validate response and drives the same lockdown as the
 // offline .lic path. Safe to run when no key is configured (it no-ops).
