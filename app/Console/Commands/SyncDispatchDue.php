@@ -36,6 +36,11 @@ class SyncDispatchDue extends Command
                 ->orWhere(fn ($s) => $s->where('schedule_mode', 'scheduled')->where('interval_minutes', '>', 0)))
             ->whereNotNull('main_device_id')
             ->whereHas('peers')
+            // Agent-managed pairings self-schedule (the installed agent watches +
+            // polls); the server must not run rclone against them. Skip any pairing
+            // whose Main or a peer is an agent-type endpoint.
+            ->whereDoesntHave('mainDevice', fn ($d) => $d->where('endpoint_type', 'agent'))
+            ->whereDoesntHave('peers', fn ($p) => $p->where('endpoint_type', 'agent'))
             ->where(fn ($q) => $q->whereNull('next_run_at')->orWhere('next_run_at', '<=', now()))
             ->get();
 

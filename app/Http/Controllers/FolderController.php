@@ -127,6 +127,16 @@ class FolderController extends Controller
             return back()->with('warning', 'Set a Main endpoint and at least one peer before running this pairing.');
         }
 
+        // Agent-managed pairing: the master cannot run rclone against an agent, so
+        // raise the pending flag the agent claims on its next poll instead of
+        // dispatching a server-side RunSyncJob.
+        if ($folder->isAgentManaged()) {
+            $folder->forceFill(['pending_sync_now' => true, 'status' => 'syncing'])->save();
+            AuditLog::record('sync', "Sync \"{$folder->name}\" requested (agent will run on next poll)", $folder);
+
+            return back()->with('status', "Sync requested for \"{$folder->name}\". The agent runs it on its next check-in.");
+        }
+
         RunSyncJob::dispatch($folder->id);
         $folder->forceFill(['status' => 'syncing'])->save();
         AuditLog::record('sync', "Sync \"{$folder->name}\" queued", $folder);

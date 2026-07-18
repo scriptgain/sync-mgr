@@ -61,9 +61,14 @@ Route::middleware(['auth', 'security.policy'])->group(function () {
     Route::delete('devices/bulk', [DeviceController::class, 'bulkDestroy'])->name('devices.bulk-destroy');
     Route::resource('devices', DeviceController::class);
     Route::post('devices/{device}/test', [DeviceController::class, 'test'])->name('devices.test');
+    Route::post('devices/{device}/enrollment-token', [DeviceController::class, 'reissueToken'])->name('devices.enrollment-token');
 
-    // Device Groups (fan-out targets). Bulk-delete registered before the resource.
+    // Device Groups (fan-out targets). Bulk + pause routes registered before the
+    // resource so their literal paths win over the {deviceGroup} wildcard.
     Route::delete('device-groups/bulk', [\App\Http\Controllers\DeviceGroupController::class, 'bulkDestroy'])->name('device-groups.bulk-destroy');
+    Route::post('device-groups/bulk-pause', [\App\Http\Controllers\DeviceGroupController::class, 'bulkPause'])->name('device-groups.bulk-pause');
+    Route::post('device-groups/bulk-resume', [\App\Http\Controllers\DeviceGroupController::class, 'bulkResume'])->name('device-groups.bulk-resume');
+    Route::post('device-groups/{deviceGroup}/toggle-pause', [\App\Http\Controllers\DeviceGroupController::class, 'togglePause'])->name('device-groups.toggle-pause');
     Route::resource('device-groups', \App\Http\Controllers\DeviceGroupController::class);
 
     // Event feed (read-only).

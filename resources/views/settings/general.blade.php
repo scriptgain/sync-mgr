@@ -101,9 +101,20 @@
                             </x-field>
                             <x-field label="Agent Download URL" for="agent_download_url" :error="$errors->first('agent_download_url')"
                                 hint="HTTPS URL the agent fetches the new binary from.">
-                                <x-input id="agent_download_url" name="agent_download_url" :value="$v['agent_download_url']" placeholder="https://backup.example.com/agent/backup-agent" />
+                                <x-input id="agent_download_url" name="agent_download_url" :value="$v['agent_download_url']" placeholder="https://github.com/TheLonelyFrogTech/syncmgr-agent/releases" />
                             </x-field>
                         </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            <x-field label="Release SHA-256" for="agent_download_sha256" :error="$errors->first('agent_download_sha256')"
+                                hint="64-hex checksum of the release archive. Produced by artisan agent:sign.">
+                                <x-input id="agent_download_sha256" name="agent_download_sha256" :value="$v['agent_download_sha256']" placeholder="e3b0c442…" class="font-mono text-xs" />
+                            </x-field>
+                            <x-field label="Release Signature" for="agent_download_signature" :error="$errors->first('agent_download_signature')"
+                                hint="Vendor RSA-SHA256 signature over version|sha256 (base64). From agent:sign.">
+                                <x-input id="agent_download_signature" name="agent_download_signature" :value="$v['agent_download_signature']" placeholder="Base64 signature" class="font-mono text-xs" />
+                            </x-field>
+                        </div>
+                        <p class="text-xs text-slate-500">The agent refuses any update offer unless the version, HTTPS URL, checksum, and vendor signature are all set. Generate the last two with <span class="font-mono text-slate-600">php artisan agent:sign</span> where the ScriptGain signing key lives.</p>
                     </div>
                 </x-card>
 

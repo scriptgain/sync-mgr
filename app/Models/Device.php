@@ -48,15 +48,19 @@ class Device extends Model
         'user_id', 'name', 'device_id', 'address', 'is_local', 'status', 'last_seen_at', 'notes',
         'endpoint_type', 'host', 'port', 'username', 'secret', 'private_key',
         'base_path', 'ftp_tls', 'bucket', 'region', 's3_path_style',
+        'agent_version', 'os', 'arch', 'last_checkin_at',
     ];
 
-    protected $hidden = ['secret', 'private_key'];
+    // enrollment_token + api_key are pairing secrets: never mass-assignable and
+    // hidden from serialization. They are written via forceFill() only.
+    protected $hidden = ['secret', 'private_key', 'enrollment_token', 'api_key'];
 
     protected function casts(): array
     {
         return [
             'is_local' => 'boolean',
             'last_seen_at' => 'datetime',
+            'last_checkin_at' => 'datetime',
             'port' => 'integer',
             'secret' => 'encrypted',
             'private_key' => 'encrypted',
@@ -115,10 +119,48 @@ class Device extends Model
         return self::ENDPOINT_TYPES[$this->endpoint_type] ?? ucfirst((string) ($this->endpoint_type ?: 'unknown'));
     }
 
-    /** Is this transport wired into the live rclone engine? */
+    /** Is this transport wired into the live rclone engine (master runs rclone against it)? */
     public function isLive(): bool
     {
         return in_array($this->endpoint_type, self::LIVE_TYPES, true);
+    }
+
+    /** True for an agent-type endpoint (an out-dialing installed program). */
+    public function isAgent(): bool
+    {
+        return $this->endpoint_type === 'agent';
+    }
+
+    /** Has this agent enrolled yet (traded its one-time token for a key)? */
+    public function isEnrolled(): bool
+    {
+        return $this->isAgent() && filled($this->api_key);
+    }
+
+    /**
+     * Live online/offline state for an agent, derived from its last check-in vs
+     * the configured offline window. Non-agent endpoints have no agent to poll,
+     * so this returns null (use the stored status instead).
+     */
+    public function agentOnline(): ?bool
+    {
+        if (! $this->isAgent()) {
+            return null;
+        }
+        if (! $this->last_checkin_at) {
+            return false;
+        }
+        $window = max(1, (int) config('sync.offline_after_minutes', config('backup.offline_after_minutes', 5)));
+
+        return $this->last_checkin_at->gt(now()->subMinutes($window));
+    }
+
+    /** True when this endpoint belongs to at least one paused device group. */
+    public function isInPausedGroup(): bool
+    {
+        $groups = $this->relationLoaded('groups') ? $this->groups : $this->groups()->get();
+
+        return $groups->contains(fn ($g) => (bool) $g->paused);
     }
 
     /** A Syncthing-style device key: uppercase, no ambiguous characters. */
@@ -129,5 +171,18 @@ class Device extends Model
         } while (static::where('device_id', $id)->exists());
 
         return $id;
+    }
+
+    /**
+     * Issue a fresh one-time enrollment token for this agent device. Returns the
+     * PLAINTEXT (shown to the operator once); only its sha256 is stored. Calling
+     * this again invalidates the previous token and re-arms enrollment.
+     */
+    public function issueEnrollmentToken(): string
+    {
+        $plain = 'syncenr_' . Str::random(40);
+        $this->forceFill(['enrollment_token' => hash('sha256', $plain)])->save();
+
+        return $plain;
     }
 }

@@ -171,7 +171,7 @@ class RcloneEngine
      */
     public function runSync(Folder $folder): SyncEvent
     {
-        $folder->loadMissing('mainDevice', 'peers');
+        $folder->loadMissing('mainDevice', 'peers', 'peers.groups');
         $main = $folder->mainDevice;
         $peers = $folder->peers;
 
@@ -184,6 +184,16 @@ class RcloneEngine
             return $this->record($folder, null, 'failed', 'error', $folder->main_mode,
                 'Pairing has no peers. Add at least one peer endpoint or a device group.', 0, 0, 1, 0, '');
         }
+
+        // Drop peers that belong to a PAUSED device group: a paused group
+        // contributes no peers. If every peer is paused out, this is a benign
+        // skip (not an error) so the pairing keeps its schedule.
+        $active = $folder->effectivePeers();
+        if ($active->isEmpty()) {
+            return $this->record($folder, null, 'success', 'scan', $folder->main_mode,
+                'Skipped: every peer is in a paused device group. Resume a group to sync.', 0, 0, 0, 0, '');
+        }
+        $peers = $active;
 
         // Main = Send Only -> fan a one-way push out to EVERY peer.
         if ($folder->main_mode === 'send_only') {
@@ -367,6 +377,49 @@ class RcloneEngine
         }
 
         return $out;
+    }
+
+    /**
+     * Record a run an AGENT executed and reported back, then roll the pairing's
+     * schedule/status forward exactly as record() does for a server-side run. The
+     * master never ran rclone here — the agent did, locally against the remote —
+     * so we trust its metrics and just persist the SyncEvent + folder headline.
+     *
+     * @param  array<string,mixed>  $data  the validated report payload.
+     */
+    public function recordReportedRun(Folder $folder, Device $agent, array $data): SyncEvent
+    {
+        $status = $data['status'];
+        $op = $data['operation'] ?? null;
+        $files = (int) ($data['files_transferred'] ?? 0);
+        $bytes = (int) ($data['bytes_transferred'] ?? 0);
+        $errors = (int) ($data['errors'] ?? 0);
+        $type = $data['type'] ?? match ($status) {
+            'success' => 'completed',
+            'partial' => 'conflict',
+            'running' => 'scan',
+            default => 'error',
+        };
+        $message = $data['message'] ?? match ($status) {
+            'success' => "Agent synced {$files} file(s), " . \App\Support\Bytes::human($bytes) . '.',
+            'partial' => "Agent completed with {$errors} error(s); {$files} file(s) transferred.",
+            'running' => 'Agent sync in progress.',
+            default => 'Agent sync failed.',
+        };
+
+        return $this->record(
+            $folder,
+            $agent,
+            $status,
+            $type,
+            $op ?: 'push',
+            $message,
+            $files,
+            $bytes,
+            $errors,
+            (int) ($data['duration_ms'] ?? 0),
+            (string) ($data['log_tail'] ?? ''),
+        );
     }
 
     /** Persist a SyncEvent, advance the pairing's schedule, and audit it. */

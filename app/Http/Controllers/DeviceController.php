@@ -57,6 +57,17 @@ class DeviceController extends Controller
         $this->assignFromRequest($device, $request);
         AuditLog::record('created', "Endpoint \"{$device->name}\" created", $device);
 
+        // Agent endpoints pair with a one-time enrollment token. Mint it now and
+        // surface the PLAINTEXT once (only its hash is stored) so the operator can
+        // paste it into the agent's install command.
+        if ($device->isAgent()) {
+            $plain = $device->issueEnrollmentToken();
+
+            return redirect()->route('devices.show', $device)
+                ->with('status', "Agent \"{$device->name}\" created. Copy the enrollment code below now.")
+                ->with('enrollment_token_plain', $plain);
+        }
+
         return redirect()->route('devices.show', $device)->with('status', "Endpoint \"{$device->name}\" created.");
     }
 
@@ -115,6 +126,24 @@ class DeviceController extends Controller
         AuditLog::record('deleted', "Endpoint \"{$name}\" deleted");
 
         return redirect()->route('devices.index')->with('status', "Endpoint \"{$name}\" deleted.");
+    }
+
+    /**
+     * Re-arm enrollment for an agent endpoint: mint a fresh one-time token and
+     * show its PLAINTEXT once. Invalidates any previous unused token. Used to
+     * re-pair an agent (e.g. reinstall) — enrolling burns the token again.
+     */
+    public function reissueToken(Device $device)
+    {
+        $this->guard($device);
+        abort_unless($device->isAgent(), 404);
+
+        $plain = $device->issueEnrollmentToken();
+        AuditLog::record('updated', "Enrollment code re-issued for agent \"{$device->name}\"", $device);
+
+        return redirect()->route('devices.show', $device)
+            ->with('status', 'New enrollment code generated. Copy it below now.')
+            ->with('enrollment_token_plain', $plain);
     }
 
     /** Run a fail-soft rclone reachability probe against this endpoint. */

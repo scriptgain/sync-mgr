@@ -3,6 +3,22 @@
 All notable changes to SyncMGR are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Cross-platform sync agent — master transport surface (Phase 1)**. An `agent`-type Device is now a real, out-dialing endpoint. The master can enroll an agent, hand it a per-pairing job spec + remote credentials, and record the SyncEvents it reports back:
+  - New agent API under `/api/v1/agent`: open `POST enroll` (one-time token to permanent key), and behind the new `agent.auth` bearer middleware: `POST heartbeat` (poll interval + signed license blob + optional update offer), `GET poll` (job spec per enabled pairing: op push/pull/bisync, local path, the remote endpoint's rclone config + path, schedule, watch flag, pending Sync-Now), `POST runs/report` (creates a SyncEvent + rolls the pairing forward), `POST command-ack`.
+  - Agent device **enrollment UI**: one-time enrollment code (shown once), per-OS install commands, and live status (version / OS / last check-in with an online/offline dot) on the device page; "New Enrollment Code" / "Re-Pair Agent" action.
+  - Dispatcher now **skips agent-managed pairings** (the agent self-schedules); panel **Sync Now** on an agent pairing raises a `pending_sync_now` flag the agent claims on its next poll.
+  - `agent:sign` artisan command signs a release (`version|sha256`) with the ScriptGain vendor key and emits the four update settings; General Settings gains **Release SHA-256** + **Release Signature** fields.
+- **Pausable Device Groups**: pause / resume a group (single row toggle + group page action) and **bulk Pause / Resume** on the index. A paused group contributes no peers, so fan-out pairings skip its members without erroring.
+
+### Changed
+- Agent endpoints no longer show a "coming soon" notice; the device page renders the agent enrollment + status panel instead.
+
+### Security
+- Agent enrollment tokens and API keys stored hashed (sha256) and hidden from serialization; remote credentials are delivered to the agent per-poll only, never persisted server-side.
+
 ## [1.1.0] - 2026-07-18
 
 ### Added

@@ -23,8 +23,8 @@
                 selected: [],
                 confirming: false,
                 allIds: [{{ $groups->pluck('id')->implode(',') }}],
-                submitBulk() {
-                    const f = this.$refs.bulkForm;
+                submitBulk(ref) {
+                    const f = this.$refs[ref];
                     f.querySelectorAll('input.js-dyn').forEach(n => n.remove());
                     this.selected.forEach(id => {
                         const i = document.createElement('input');
@@ -35,10 +35,14 @@
                 }
             }">
             <form method="POST" action="{{ route('device-groups.bulk-destroy') }}" x-ref="bulkForm" class="hidden">@csrf @method('DELETE')</form>
+            <form method="POST" action="{{ route('device-groups.bulk-pause') }}" x-ref="bulkPauseForm" class="hidden">@csrf</form>
+            <form method="POST" action="{{ route('device-groups.bulk-resume') }}" x-ref="bulkResumeForm" class="hidden">@csrf</form>
 
             <div x-show="selected.length" x-cloak class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-50 px-4 py-2.5 ring-1 ring-inset ring-brand-200">
                 <span class="text-sm font-medium text-brand-800"><span x-text="selected.length"></span> selected</span>
                 <div class="flex items-center gap-2">
+                    <x-button type="button" variant="secondary" size="sm" icon="pause" x-on:click="$dispatch('open-modal', 'bulk-pause-groups')">Pause Selected</x-button>
+                    <x-button type="button" variant="secondary" size="sm" icon="play" x-on:click="$dispatch('open-modal', 'bulk-resume-groups')">Resume Selected</x-button>
                     <template x-if="! confirming">
                         <x-button type="button" variant="danger" size="sm" icon="trash" x-on:click="confirming = true">Delete Selected</x-button>
                     </template>
@@ -46,11 +50,27 @@
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="text-sm text-brand-800">Delete <span x-text="selected.length"></span> group(s)?</span>
                             <x-button type="button" variant="secondary" size="sm" x-on:click="confirming = false">Cancel</x-button>
-                            <x-button type="button" variant="danger" size="sm" icon="trash" x-on:click="submitBulk()">Confirm Delete</x-button>
+                            <x-button type="button" variant="danger" size="sm" icon="trash" x-on:click="submitBulk('bulkForm')">Confirm Delete</x-button>
                         </div>
                     </template>
                 </div>
             </div>
+
+            {{-- Fleet-modal confirmations for the bulk pause/resume actions --}}
+            <x-modal name="bulk-pause-groups" title="Pause Selected Groups?" icon="pause" maxWidth="max-w-md">
+                Paused groups contribute no peers. Pairings that fan out to a paused group skip its members until it is resumed. This does not delete anything.
+                <x-slot:footer>
+                    <x-button variant="secondary" size="sm" x-on:click="$dispatch('close-modal', 'bulk-pause-groups')">Cancel</x-button>
+                    <x-button variant="primary" size="sm" icon="pause" x-on:click="$dispatch('close-modal', 'bulk-pause-groups'); submitBulk('bulkPauseForm')">Pause Groups</x-button>
+                </x-slot:footer>
+            </x-modal>
+            <x-modal name="bulk-resume-groups" title="Resume Selected Groups?" icon="play" maxWidth="max-w-md">
+                Resumed groups contribute their members as peers again. Pairings that fan out to them will include those members on the next run.
+                <x-slot:footer>
+                    <x-button variant="secondary" size="sm" x-on:click="$dispatch('close-modal', 'bulk-resume-groups')">Cancel</x-button>
+                    <x-button variant="primary" size="sm" icon="play" x-on:click="$dispatch('close-modal', 'bulk-resume-groups'); submitBulk('bulkResumeForm')">Resume Groups</x-button>
+                </x-slot:footer>
+            </x-modal>
 
             <x-table>
                 <thead>
@@ -66,7 +86,7 @@
                                     class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
                             </button>
                         </th>
-                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Members</th><th>Created</th><th class="text-right">Actions</th>
+                        <th>Name</th>@if (auth()->user()->isAdmin())<th>Owner</th>@endif<th>Members</th><th>Status</th><th>Created</th><th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -92,6 +112,20 @@
                             @if (auth()->user()->isAdmin())<td class="text-slate-500">{{ $g->owner?->name ?? 'Unassigned' }}</td>@endif
                             <td>
                                 <x-badge :color="$g->devices_count > 0 ? 'info' : 'neutral'">{{ number_format($g->devices_count) }} {{ \Illuminate\Support\Str::plural('device', $g->devices_count) }}</x-badge>
+                            </td>
+                            <td>
+                                <div class="flex items-center gap-2.5">
+                                    <form method="POST" action="{{ route('device-groups.toggle-pause', $g) }}" class="inline-flex">
+                                        @csrf
+                                        <button type="submit" role="switch" aria-checked="{{ $g->paused ? 'false' : 'true' }}"
+                                            data-tip="{{ $g->paused ? 'Resume Group' : 'Pause Group' }}"
+                                            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors align-middle {{ $g->paused ? 'bg-slate-300' : 'bg-brand-600' }}"
+                                            aria-label="{{ $g->paused ? 'Resume group' : 'Pause group' }}">
+                                            <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform {{ $g->paused ? 'translate-x-1' : 'translate-x-6' }}"></span>
+                                        </button>
+                                    </form>
+                                    <x-badge :color="$g->paused ? 'warn' : 'success'" dot>{{ $g->paused ? 'Paused' : 'Active' }}</x-badge>
+                                </div>
                             </td>
                             <td class="text-slate-500">{{ $g->created_at->format('M j, Y') }}</td>
                             <td class="text-right">

@@ -101,6 +101,52 @@ class DeviceGroupController extends Controller
     }
 
     /**
+     * Pause or resume a group. A paused group contributes no peers to a fan-out:
+     * pairings that target it skip its members until it is resumed.
+     */
+    public function togglePause(DeviceGroup $deviceGroup)
+    {
+        $this->guard($deviceGroup);
+        $deviceGroup->forceFill(['paused' => ! $deviceGroup->paused])->save();
+        $verb = $deviceGroup->paused ? 'paused' : 'resumed';
+        AuditLog::record('updated', "Device Group \"{$deviceGroup->name}\" {$verb}", $deviceGroup);
+
+        return back()->with('status', "Device Group \"{$deviceGroup->name}\" {$verb}.");
+    }
+
+    /** Bulk pause selected groups (owner-scoped). */
+    public function bulkPause(Request $request)
+    {
+        return $this->bulkSetPaused($request, true);
+    }
+
+    /** Bulk resume selected groups (owner-scoped). */
+    public function bulkResume(Request $request)
+    {
+        return $this->bulkSetPaused($request, false);
+    }
+
+    /** Shared body for bulk pause/resume: only touch owner-visible submitted ids. */
+    private function bulkSetPaused(Request $request, bool $paused)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $ids = DeviceGroup::visibleTo(auth()->user())->whereIn('id', $data['ids'])->pluck('id');
+        if ($ids->isEmpty()) {
+            return back()->with('warning', 'No matching groups were selected.');
+        }
+
+        $count = DeviceGroup::whereIn('id', $ids->all())->update(['paused' => $paused]);
+        $verb = $paused ? 'paused' : 'resumed';
+        AuditLog::record('updated', "Bulk {$verb} {$count} device group".($count === 1 ? '' : 's').'.');
+
+        return back()->with('status', $count.' group'.($count === 1 ? '' : 's').' '.$verb.'.');
+    }
+
+    /**
      * Bulk-delete selected groups. Only the submitted ids are touched, and only
      * groups the current user is allowed to see.
      */

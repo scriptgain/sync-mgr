@@ -16,8 +16,15 @@ class DeviceGroup extends Model
     use OwnedByUser;
 
     protected $fillable = [
-        'user_id', 'name', 'description',
+        'user_id', 'name', 'description', 'paused',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'paused' => 'boolean',
+        ];
+    }
 
     /** Member endpoints in this group. */
     public function devices(): BelongsToMany

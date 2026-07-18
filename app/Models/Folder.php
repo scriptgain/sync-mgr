@@ -58,6 +58,7 @@ class Folder extends Model
         'rescan_interval', 'versioning', 'file_count', 'size_bytes', 'notes',
         'main_device_id', 'peer_device_id', 'main_mode', 'peer_mode',
         'subpath', 'enabled', 'schedule_mode', 'interval_minutes', 'last_run_at', 'next_run_at', 'last_status',
+        'pending_sync_now',
     ];
 
     protected function casts(): array
@@ -71,6 +72,7 @@ class Folder extends Model
             'interval_minutes' => 'integer',
             'last_run_at' => 'datetime',
             'next_run_at' => 'datetime',
+            'pending_sync_now' => 'boolean',
         ];
     }
 
@@ -196,6 +198,41 @@ class Folder extends Model
             'send_receive' => 'Main ⇄ Peer (two-way)',
             default => 'Invalid role combination',
         };
+    }
+
+    /**
+     * The agent-type Device on this pairing (Main or a peer), if any. The master
+     * never runs rclone against an agent; agent-managed pairings are served to the
+     * agent to run locally instead.
+     */
+    public function agentDevice(): ?Device
+    {
+        $main = $this->relationLoaded('mainDevice') ? $this->mainDevice : $this->mainDevice()->first();
+        if ($main && $main->endpoint_type === 'agent') {
+            return $main;
+        }
+        $peers = $this->relationLoaded('peers') ? $this->peers : $this->peers()->get();
+
+        return $peers->firstWhere('endpoint_type', 'agent');
+    }
+
+    /** True when an installed agent (not the server) owns this pairing's sync. */
+    public function isAgentManaged(): bool
+    {
+        return $this->agentDevice() !== null;
+    }
+
+    /**
+     * The peer set that is actually eligible right now: the pivot peers minus any
+     * device that belongs to a PAUSED device group (a paused group contributes no
+     * peers). Reuses the existing peer relation + group membership. Single-device
+     * and non-group pairings are unaffected (a device in no group is never paused).
+     */
+    public function effectivePeers()
+    {
+        $peers = $this->relationLoaded('peers') ? $this->peers : $this->peers()->with('groups')->get();
+
+        return $peers->reject(fn (Device $d) => $d->isInPausedGroup())->values();
     }
 
     /** Is this pairing eligible for an automatic run right now? */
