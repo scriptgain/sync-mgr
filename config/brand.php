@@ -9,5 +9,5 @@ return [
     // Accent hex; overrides the cyan brand ramp at runtime. Settable in the UI.
     'accent' => env('BRAND_ACCENT', '#06b6d4'),
     // Brand glyph (icon-component name); the wordmark + favicon both use it.
-    'icon' => env('BRAND_ICON', 'shield'),
+    'icon' => env('BRAND_ICON', 'refresh'),
 ];
