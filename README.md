@@ -1,58 +1,106 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SyncMGR
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+**Continuous file sync across your servers, with a control panel and an audit
+trail.** Self-hosted, by [ScriptGain](https://scriptgain.com).
 
-## About Laravel
+**[Try the live demo →](https://sync-demo.scriptgain.com)** — no signup required.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Who it's for
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Anyone keeping the same files on more than one machine: web servers behind a load
+balancer that need the same uploads directory, an office file store mirrored to a
+DR site, a fleet of branch servers pulling the same configuration, or a media
+pipeline moving finished work off editing machines.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## What it does
 
-## Learning Laravel
+**Register your machines**
+Each server, workstation, or NAS is a device. Group devices so a folder can be
+shared with "all web servers" rather than named one at a time.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+**Define what syncs**
+A folder is a sync set: a path, the devices it lives on, and how it moves. Add a
+device to the group and it picks up the folder.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+**Let it run**
+Changes propagate continuously. Scheduled dispatch handles anything that should
+move in a window rather than immediately.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+**See what happened**
+Every transfer, conflict, and failure is an event you can search — usually the
+thing you actually need at 2am, and the thing peer-to-peer sync tools don't keep.
 
-## Agentic Development
+**Run it like production**
+Users and roles, two-factor authentication, an IP firewall with an escape hatch,
+API tokens, a full audit log, database backups, host and SSL settings, and
+in-place signed updates.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Current state
 
-```bash
-composer require laravel/boost --dev
+**Version 1.2.2.** The control plane — devices, device groups, folders, event
+history — and the whole operations shell are complete and in production use.
 
-php artisan boost:install
+The **sync agent** is a separate cross-platform binary that runs on each device.
+The Linux agent is proven; Windows and macOS builds are not published yet, so in
+practice this is a Linux-to-Linux tool today.
+
+## Why not just Syncthing
+
+Syncthing is free, excellent, and the right answer for a handful of personal
+machines. It is peer-to-peer by design, which means there is no central place to
+say "these forty servers all get this folder", no central audit trail, no
+role-based access for the people managing it, and no single panel showing which
+device last fell behind.
+
+SyncMGR takes the opposite trade: a central control plane, a searchable event
+history, and admin accounts with permissions. Syncing two laptops? Use Syncthing.
+Answerable for forty servers? That is what this is for.
+
+## Install
+
+Point a fresh Debian or Ubuntu server at your domain and run, as root:
+
+```
+curl -fsSL https://install.scriptgain.com | sudo bash -s -- sync-mgr DOMAIN=sync.example.com SSL=1 EMAIL=you@example.com
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Then open `https://your.domain/setup` to create the first account and enter your
+licence key. Install the agent on each device from the Devices screen.
 
-## Contributing
+## Where things live
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+| Surface | Path |
+| --- | --- |
+| Control panel | `/` |
+| First-run setup | `/setup` |
+| Agent and API endpoints | `/api` |
 
-## Code of Conduct
+## Running it
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Everything an operator changes — branding, email, notifications, firewall rules,
+retention, backup schedule — is edited in the panel rather than in files on the
+server.
 
-## Security Vulnerabilities
+Maintenance tasks from the command line:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+| Command | What it does |
+| --- | --- |
+| `php artisan sync:run` | Runs a sync pass now. |
+| `php artisan sync:dispatch-due` | Dispatches folders whose window has arrived. Runs on a timer. |
+| `php artisan sync:maintenance` | Prunes old events and marks stale devices disconnected. |
+| `php artisan agent:sign` | Signs an agent build so devices will accept it. |
+| `php artisan license:check-online` | Re-validates your licence. |
+| `php artisan app:update` | Applies a signed release. |
+| `php artisan db-backup:run` | Backs up the database. |
+| `php artisan firewall:clear` | Gets you back in if an IP rule locks you out. |
 
-## License
+## Requirements
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+A Linux server with PHP 8.3 and MySQL or MariaDB for the control plane, plus the
+agent on each device you sync. Bandwidth between sites matters far more than CPU.
+
+## Licensing
+
+One activation per licence by default, validated against
+`https://scriptgain.com/v1`. Buy or manage yours at
+[scriptgain.com/products/syncmgr](https://scriptgain.com/products/syncmgr).
