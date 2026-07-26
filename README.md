@@ -3,7 +3,7 @@
 **Continuous file sync across your servers, with a control panel and an audit
 trail.** Self-hosted, by [ScriptGain](https://scriptgain.com).
 
-**[Try the live demo →](https://sync-demo.scriptgain.com)** — no signup required.
+**[Try the live demo →](https://sync-demo.scriptgain.com)** No signup required.
 
 ## Who it's for
 
@@ -27,7 +27,7 @@ Changes propagate continuously. Scheduled dispatch handles anything that should
 move in a window rather than immediately.
 
 **See what happened**
-Every transfer, conflict, and failure is an event you can search — usually the
+Every transfer, conflict, and failure is an event you can search, usually the
 thing you actually need at 2am, and the thing peer-to-peer sync tools don't keep.
 
 **Run it like production**
@@ -37,8 +37,8 @@ in-place signed updates.
 
 ## Current state
 
-**Version 1.2.2.** The control plane — devices, device groups, folders, event
-history — and the whole operations shell are complete and in production use.
+**Version 1.2.2.** The control plane (devices, device groups, folders, event
+history) and the whole operations shell are complete and in production use.
 
 The **sync agent** is a separate cross-platform binary that runs on each device.
 The Linux agent is proven; Windows and macOS builds are not published yet, so in
@@ -77,8 +77,8 @@ licence key. Install the agent on each device from the Devices screen.
 
 ## Running it
 
-Everything an operator changes — branding, email, notifications, firewall rules,
-retention, backup schedule — is edited in the panel rather than in files on the
+Everything an operator changes (branding, email, notifications, firewall rules,
+retention, backup schedule) is edited in the panel rather than in files on the
 server.
 
 Maintenance tasks from the command line:
