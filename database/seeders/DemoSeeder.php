@@ -54,10 +54,25 @@ class DemoSeeder extends Seeder
             $groups[] = DB::table('device_groups')->insertGetId(['user_id' => $uid, 'name' => $n, 'description' => $d, 'paused' => 0, 'created_at' => now(), 'updated_at' => now()]);
         }
 
+        /*
+         * Underscored, and every pair a combination the model actually resolves.
+         *
+         * These were 'sendreceive' / 'sendonly' / 'receiveonly', which are not the
+         * values Folder::MAIN_MODES defines, so flowLabel() fell through to its
+         * default and every pairing detail page announced "Invalid role combination"
+         * while resolveFlow() returned op=invalid. Two of the pairs were also
+         * genuinely invalid even spelled correctly (send_receive against send_only,
+         * and send_receive against receive_only): the only combinations that resolve
+         * are send_only + receive_only (push), receive_only + send_only (pull) and
+         * send_receive on both sides (bisync). All three are represented here.
+         */
         $folderDefs = [
-            ['Website Assets', '/srv/www', 'sendreceive', 'sendonly'], ['Database Dumps', '/srv/dumps', 'sendonly', 'receiveonly'],
-            ['User Uploads', '/srv/uploads', 'sendreceive', 'sendreceive'], ['Config Backups', '/etc/appconf', 'sendonly', 'receiveonly'],
-            ['Media Library', '/srv/media', 'sendreceive', 'receiveonly'], ['Log Archive', '/var/log/archive', 'sendonly', 'receiveonly'],
+            ['Website Assets', '/srv/www', 'send_receive', 'send_receive'],   // bisync
+            ['Database Dumps', '/srv/dumps', 'send_only', 'receive_only'],    // push
+            ['User Uploads', '/srv/uploads', 'send_receive', 'send_receive'], // bisync
+            ['Config Backups', '/etc/appconf', 'send_only', 'receive_only'],  // push
+            ['Media Library', '/srv/media', 'receive_only', 'send_only'],     // pull
+            ['Log Archive', '/var/log/archive', 'send_only', 'receive_only'], // push
         ];
         $folders = [];
         foreach ($folderDefs as $i => [$name, $path, $mainMode, $peerMode]) {
