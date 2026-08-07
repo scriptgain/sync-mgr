@@ -36,7 +36,13 @@ class DemoSeeder extends Seeder
                 'base_path' => $etype === 's3' ? null : '/srv/sync', 'bucket' => $etype === 's3' ? 'offsite-sync' : null,
                 'region' => $etype === 's3' ? 'us-west-004' : null, 'device_id' => (string) Str::uuid(),
                 'api_key' => 'sk_'.Str::random(28), 'agent_version' => '1.2.0', 'os' => 'linux', 'arch' => 'x86_64',
-                'is_local' => $isLocal ? 1 : 0, 'status' => $online ? 'online' : 'offline',
+                // 'connected'/'disconnected', NOT 'online'/'offline'. Those are the
+                // only values Device::STATUSES defines, and the dashboard's
+                // "Connected" tile counts status='connected' literally. Seeding
+                // 'online' made the tile read 0 while every row's badge showed
+                // "Online", because statusLabel() falls back to ucfirst() for an
+                // unknown value and so hid the mismatch.
+                'is_local' => $isLocal ? 1 : 0, 'status' => $online ? 'connected' : 'disconnected',
                 'last_seen_at' => $online ? now()->subSeconds(random_int(5, 120)) : now()->subHours(random_int(3, 30)),
                 'last_checkin_at' => now()->subSeconds(random_int(5, 300)),
                 'created_at' => now()->subDays(random_int(10, 80)), 'updated_at' => now(),
